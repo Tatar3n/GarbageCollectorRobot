@@ -12,9 +12,9 @@ GameObject:
   - component: {fileID: 2543931451927152843}
   - component: {fileID: 7927729336164274093}
   - component: {fileID: 4639506430230530003}
-  m_Layer: 8
+  m_Layer: 11
   m_Name: Garbage
-  m_TagString: Untagged
+  m_TagString: garbage
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -146,4 +146,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 475134bcff782aa47ae193d97db2f785, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  garbageType: 0
+  garbageType: 1

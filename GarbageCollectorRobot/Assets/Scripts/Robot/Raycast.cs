@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class Raycast2DExample : MonoBehaviour
 {
-    [SerializeField] private float rayLength = 10f;
+    [SerializeField] private float rayLength = 1f;
     [SerializeField] private LayerMask targetLayers;
     [SerializeField] private Vector2 rayDirection = Vector2.right;
     
@@ -11,13 +11,13 @@ public class Raycast2DExample : MonoBehaviour
         RaycastHit2D hit = Physics2D.Raycast(
             transform.position,    
             rayDirection,         
-            rayLength,             
-            targetLayers           
+            rayLength,
+            targetLayers
         );
         
         if (hit.collider != null)
         {
-            Debug.Log($"Обнаружен объект: {hit.collider.name}");
+            Debug.Log($"Обнаружен объект: {hit.collider.tag}");
             Debug.Log($"Расстояние: {hit.distance}");
             Debug.Log($"Точка попадания: {hit.point}");
             Debug.Log($"Нормаль: {hit.normal}");

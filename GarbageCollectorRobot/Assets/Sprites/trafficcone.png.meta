@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 0cb74fbdcd564f944824147fd63f11c5
+guid: 4d446142ab39046429a9a268febbdb51
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 7456710110165496440
-    second: machina_0
+      213: -4158706959931503830
+    second: trafficcone_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -126,13 +126,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: machina_0
+      name: trafficcone_0
       rect:
         serializedVersion: 2
-        x: 15
+        x: 0
         y: 0
-        width: 34
-        height: 64
+        width: 64
+        height: 74
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -140,8 +140,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 8727a7d765e8b7760800000000000000
-      internalID: 7456710110165496440
+      spriteID: a2b8650cd0e4946c0800000000000000
+      internalID: -4158706959931503830
       vertices: []
       indices: 
       edges: []
@@ -156,8 +156,7 @@ TextureImporter:
     edges: []
     weights: []
     secondaryTextures: []
-    nameFileIdTable:
-      machina_0: 7456710110165496440
+    nameFileIdTable: {}
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 0cb74fbdcd564f944824147fd63f11c5
+guid: 3f2ad16fb1a2fa145a3ac5589ee8720d
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 7456710110165496440
-    second: machina_0
+      213: 3664476081151347988
+    second: asphalt_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -126,12 +126,12 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: machina_0
+      name: asphalt_0
       rect:
         serializedVersion: 2
-        x: 15
+        x: 0
         y: 0
-        width: 34
+        width: 64
         height: 64
       alignment: 0
       pivot: {x: 0, y: 0}
@@ -140,8 +140,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 8727a7d765e8b7760800000000000000
-      internalID: 7456710110165496440
+      spriteID: 41d01f0a495dad230800000000000000
+      internalID: 3664476081151347988
       vertices: []
       indices: 
       edges: []
@@ -156,8 +156,7 @@ TextureImporter:
     edges: []
     weights: []
     secondaryTextures: []
-    nameFileIdTable:
-      machina_0: 7456710110165496440
+    nameFileIdTable: {}
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

@@ -1,10 +1,16 @@
 fileFormatVersion: 2
-guid: 0cb74fbdcd564f944824147fd63f11c5
+guid: c06fcf99d813fbb4883d401fc604804d
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 7456710110165496440
-    second: machina_0
+      213: -560645910523198849
+    second: trash4_0
+  - first:
+      213: 247297937447807924
+    second: trash4_1
+  - first:
+      213: -6284086254066305073
+    second: trash4_2
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -126,13 +132,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: machina_0
+      name: trash4_0
       rect:
         serializedVersion: 2
-        x: 15
-        y: 0
-        width: 34
-        height: 64
+        x: 18
+        y: 31
+        width: 39
+        height: 23
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -140,8 +146,50 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 8727a7d765e8b7760800000000000000
-      internalID: 7456710110165496440
+      spriteID: f724d7ac38f2838f0800000000000000
+      internalID: -560645910523198849
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: trash4_1
+      rect:
+        serializedVersion: 2
+        x: 40
+        y: 25
+        width: 7
+        height: 7
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 4bb6343f9249e6300800000000000000
+      internalID: 247297937447807924
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
+    - serializedVersion: 2
+      name: trash4_2
+      rect:
+        serializedVersion: 2
+        x: 5
+        y: 6
+        width: 36
+        height: 24
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: fc77670b8d07ac8a0800000000000000
+      internalID: -6284086254066305073
       vertices: []
       indices: 
       edges: []
@@ -156,8 +204,7 @@ TextureImporter:
     edges: []
     weights: []
     secondaryTextures: []
-    nameFileIdTable:
-      machina_0: 7456710110165496440
+    nameFileIdTable: {}
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

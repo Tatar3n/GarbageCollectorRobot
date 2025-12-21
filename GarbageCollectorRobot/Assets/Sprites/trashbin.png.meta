@@ -1,10 +1,10 @@
 fileFormatVersion: 2
-guid: 0cb74fbdcd564f944824147fd63f11c5
+guid: c61036880d01c304d9186a987e4040a7
 TextureImporter:
   internalIDToNameTable:
   - first:
-      213: 7456710110165496440
-    second: machina_0
+      213: 3003430139365842779
+    second: trashbin_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -126,12 +126,12 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: machina_0
+      name: trashbin_0
       rect:
         serializedVersion: 2
-        x: 15
+        x: 0
         y: 0
-        width: 34
+        width: 64
         height: 64
       alignment: 0
       pivot: {x: 0, y: 0}
@@ -140,8 +140,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: -1
       bones: []
-      spriteID: 8727a7d765e8b7760800000000000000
-      internalID: 7456710110165496440
+      spriteID: b5f5a948cc35ea920800000000000000
+      internalID: 3003430139365842779
       vertices: []
       indices: 
       edges: []
@@ -156,8 +156,7 @@ TextureImporter:
     edges: []
     weights: []
     secondaryTextures: []
-    nameFileIdTable:
-      machina_0: 7456710110165496440
+    nameFileIdTable: {}
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

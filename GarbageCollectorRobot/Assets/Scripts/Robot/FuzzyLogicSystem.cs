@@ -1,85 +1,88 @@
 using UnityEngine;
 using System.Collections.Generic;
-
+namespace Fuzzy
+{
 public class FuzzyLogicSystem : MonoBehaviour
 {
-    // ========== НАСТРОЙКИ ==========
-    [Header("Настройки движения")]
+    // ========== пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ==========
+    [Header("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")]
     public float speed = 3f;
     public float detectionRadius = 5f;
     public float obstacleAvoidDistance = 1.5f;
 
-    [Header("Слои")]
+    [Header("пїЅпїЅпїЅпїЅ")]
     public LayerMask obstacleLayer;
     public LayerMask garbageLayer;
+    // РЎРѕР·РґР°РµРј СЌРєР·РµРјРїР»СЏСЂ FuzzyFunction
+    private FuzzyFunction fuzzyFunction = new FuzzyFunction();
 
-    [Header("4 сенсора избегания")]
+    [Header("4 пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")]
     public Transform frontSensor;
     public Transform backSensor;
     public Transform leftSensor;
     public Transform rightSensor;
 
-    [Header("Отладка")]
+    [Header("пїЅпїЅпїЅпїЅпїЅпїЅпїЅ")]
     public bool showDebug = true;
 
-    // ========== ВНУТРЕННИЕ ПЕРЕМЕННЫЕ ==========
+    // ========== пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ==========
     private Inventory inventory;
     private Dictionary<Types.GType, Transform> trashbins = new Dictionary<Types.GType, Transform>();
 
     private Vector2 movementDirection = Vector2.zero;
 
-    // Цели
+    // пїЅпїЅпїЅпїЅ
     private Transform currentTarget = null;
     private Types.GType currentGarbageType = Types.GType.None;
 
-    // Поиск
+    // пїЅпїЅпїЅпїЅпїЅ
     private Vector2 searchDirection = Vector2.right;
     private float searchChangeTime = 2f;
     private float searchTimer = 0f;
 
-    // Состояния
+    // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
     private enum RobotState { Searching, GoingToGarbage, GoingToTrashbin, Unloading }
     private RobotState currentState = RobotState.Searching;
 
     void Start()
     {
-        // Получаем инвентарь
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         inventory = GetComponent<Inventory>();
         if (inventory == null)
         {
-            Debug.LogError("Нет компонента Inventory на роботе!");
+            Debug.LogError("пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ Inventory пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ!");
             enabled = false;
             return;
         }
 
-        // Находим все мусорки
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         FindAllTrashbins();
 
-        // Начальное направление
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         searchDirection = Random.insideUnitCircle.normalized;
 
-        Debug.Log("Робот-сборщик запущен. Мусорок: " + trashbins.Count);
+        Debug.Log("пїЅпїЅпїЅпїЅпїЅ-пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅпїЅпїЅ: " + trashbins.Count);
     }
 
     void Update()
     {
-        // 1. Обновляем состояние на основе инвентаря
+        // 1. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         UpdateRobotState();
 
-        // 2. Выбираем цель в зависимости от состояния
+        // 2. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         SelectTargetBasedOnState();
 
-        // 3. Рассчитываем движение с учетом препятствий
+        // 3. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         CalculateMovement();
 
-        // 4. Двигаемся
+        // 4. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         Move();
 
-        // 5. Отладка
+        // 5. пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         if (showDebug) DebugInfo();
     }
 
-    // ========== ОСНОВНЫЕ ФУНКЦИИ ==========
+    // ========== пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ ==========
 
     void FindAllTrashbins()
     {
@@ -93,38 +96,38 @@ public class FuzzyLogicSystem : MonoBehaviour
 
     void UpdateRobotState()
     {
-        // Получаем текущий тип мусора в инвентаре
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         Types.GType inventoryGarbage = inventory.getCell();
 
-        // Если инвентарь изменился
+        // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         if (inventoryGarbage != currentGarbageType)
         {
             currentGarbageType = inventoryGarbage;
 
-            // Определяем новое состояние
+            // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
             if (inventoryGarbage == Types.GType.None)
             {
-                // Инвентарь пуст - начинаем поиск
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ - пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ
                 currentState = RobotState.Searching;
                 currentTarget = null;
-                Debug.Log("Инвентарь пуст - начинаю поиск мусора");
+                Debug.Log("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ - пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ");
             }
             else
             {
-                // Подобрали мусор - едем к мусорке
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ - пїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 currentState = RobotState.GoingToTrashbin;
-                Debug.Log($"Подобрал мусор типа: {inventoryGarbage} - еду к мусорке");
+                Debug.Log($"пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ: {inventoryGarbage} - пїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ");
             }
         }
 
-        // Если мы в состоянии разгрузки и достигли мусорки
+        // пїЅпїЅпїЅпїЅ пїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         if (currentState == RobotState.GoingToTrashbin && currentTarget != null)
         {
             float distance = Vector2.Distance(transform.position, currentTarget.position);
             if (distance < 0.5f)
             {
                 currentState = RobotState.Unloading;
-                Debug.Log("Достиг мусорки - разгружаюсь");
+                Debug.Log("пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ - пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ");
             }
         }
     }
@@ -134,7 +137,7 @@ public class FuzzyLogicSystem : MonoBehaviour
         switch (currentState)
         {
             case RobotState.Searching:
-                // Ищем ближайший мусор
+                // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ
                 FindNearestGarbage();
                 if (currentTarget != null)
                 {
@@ -143,8 +146,8 @@ public class FuzzyLogicSystem : MonoBehaviour
                 break;
 
             case RobotState.GoingToGarbage:
-                // Цель уже установлена (мусор)
-                // Проверяем не подобран ли уже
+                // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ (пїЅпїЅпїЅпїЅпїЅ)
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅ
                 if (inventory.getCell() != Types.GType.None)
                 {
                     currentState = RobotState.GoingToTrashbin;
@@ -153,7 +156,7 @@ public class FuzzyLogicSystem : MonoBehaviour
                 break;
 
             case RobotState.GoingToTrashbin:
-                // Находим мусорку для текущего типа мусора
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
                 if (currentTarget == null && trashbins.ContainsKey(currentGarbageType))
                 {
                     currentTarget = trashbins[currentGarbageType];
@@ -161,18 +164,18 @@ public class FuzzyLogicSystem : MonoBehaviour
                 break;
 
             case RobotState.Unloading:
-                // Ждем пока TrashBin.OnTriggerEnter2D очистит инвентарь
-                // После очистки UpdateRobotState переведет в Searching
+                // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ TrashBin.OnTriggerEnter2D пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
+                // пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ UpdateRobotState пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ Searching
                 break;
         }
     }
 
     void FindNearestGarbage()
     {
-        // Сбрасываем цель
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ
         currentTarget = null;
 
-        // Ищем мусор в радиусе
+        // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         Collider2D[] garbageColliders = Physics2D.OverlapCircleAll(
             transform.position,
             detectionRadius,
@@ -181,13 +184,13 @@ public class FuzzyLogicSystem : MonoBehaviour
 
         if (garbageColliders.Length > 0)
         {
-            // Берем самый близкий
+            // пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
             Transform closest = null;
             float minDist = float.MaxValue;
 
             foreach (var collider in garbageColliders)
             {
-                // Проверяем что объект еще существует
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 if (collider == null) continue;
 
                 float dist = Vector2.Distance(transform.position, collider.transform.position);
@@ -201,7 +204,7 @@ public class FuzzyLogicSystem : MonoBehaviour
             currentTarget = closest;
             if (currentTarget != null)
             {
-                Debug.Log($"Нашел мусор на расстоянии: {minDist:F1}");
+                Debug.Log($"пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ: {minDist:F1}");
             }
         }
     }
@@ -210,12 +213,12 @@ public class FuzzyLogicSystem : MonoBehaviour
     {
         Vector2 targetDirection = Vector2.zero;
 
-        // Если есть цель - идем к ней
+        // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ - пїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅ
         if (currentTarget != null && currentState != RobotState.Unloading)
         {
             Vector2 toTarget = (Vector2)currentTarget.position - (Vector2)transform.position;
 
-            // Если очень близко к цели - останавливаемся
+            // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅ - пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
             float distance = toTarget.magnitude;
             if (distance < 0.3f)
             {
@@ -225,39 +228,36 @@ public class FuzzyLogicSystem : MonoBehaviour
 
             targetDirection = toTarget.normalized;
         }
-        // Если нет цели (патрулируем) - случайное движение
+        // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅ (пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ) - пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         else if (currentState == RobotState.Searching)
         {
-            // Меняем направление поиска периодически
+            // пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
             searchTimer += Time.deltaTime;
             if (searchTimer > searchChangeTime)
             {
                 searchDirection = Random.insideUnitCircle.normalized;
                 searchTimer = 0f;
                 searchChangeTime = Random.Range(1f, 3f);
-                Debug.Log("Меняю направление поиска");
+                Debug.Log("пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ");
             }
 
             targetDirection = searchDirection;
         }
-        // Если разгружаемся - стоим на месте
+        // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ - пїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅ
         else if (currentState == RobotState.Unloading)
         {
             movementDirection = Vector2.zero;
             return;
         }
 
-        // ПРОВЕРКА ПРЕПЯТСТВИЙ
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         Vector2 avoidDirection = Vector2.zero;
 
-        // Проверяем все 4 направления
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ 4 пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         if (frontSensor != null)
         {
             float frontDist = CheckObstacleDistance(frontSensor, Vector2.up);
-            if (frontDist < obstacleAvoidDistance)
-            {
-                avoidDirection += Vector2.down * (1f - (frontDist / obstacleAvoidDistance));
-            }
+            speed = fuzzyFunction.Sentr_mass(frontDist);
         }
 
         if (backSensor != null)
@@ -287,10 +287,10 @@ public class FuzzyLogicSystem : MonoBehaviour
             }
         }
 
-        // Комбинируем направление к цели и избегание препятствий
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         if (avoidDirection.magnitude > 0.1f)
         {
-            // Приоритет: избегание препятствий
+            // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ: пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
             movementDirection = (targetDirection + avoidDirection * 2f).normalized;
         }
         else
@@ -310,7 +310,7 @@ public class FuzzyLogicSystem : MonoBehaviour
             obstacleLayer
         );
 
-        // Рисуем луч для отладки
+        // пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         if (showDebug)
         {
             Debug.DrawRay(sensor.position, direction * obstacleAvoidDistance * 1.5f,
@@ -322,32 +322,32 @@ public class FuzzyLogicSystem : MonoBehaviour
 
     void Move()
     {
-        // Применяем движение
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         if (movementDirection.magnitude > 0.1f)
         {
             transform.position += (Vector3)movementDirection * speed * Time.deltaTime;
         }
     }
 
-    // ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+    // ========== пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ ==========
 
     void DebugInfo()
     {
         string stateStr = "";
         switch (currentState)
         {
-            case RobotState.Searching: stateStr = "Поиск мусора"; break;
-            case RobotState.GoingToGarbage: stateStr = "Еду к мусору"; break;
-            case RobotState.GoingToTrashbin: stateStr = "Еду к мусорке"; break;
-            case RobotState.Unloading: stateStr = "Разгружаюсь"; break;
+            case RobotState.Searching: stateStr = "пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ"; break;
+            case RobotState.GoingToGarbage: stateStr = "пїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ"; break;
+            case RobotState.GoingToTrashbin: stateStr = "пїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ"; break;
+            case RobotState.Unloading: stateStr = "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ"; break;
         }
 
         string targetStr = currentTarget != null ?
-            (currentState == RobotState.GoingToTrashbin ? "Мусорка" : "Мусор") : "Нет цели";
+            (currentState == RobotState.GoingToTrashbin ? "пїЅпїЅпїЅпїЅпїЅпїЅпїЅ" : "пїЅпїЅпїЅпїЅпїЅ") : "пїЅпїЅпїЅ пїЅпїЅпїЅпїЅ";
 
-        string info = $"Состояние: {stateStr} | Инвентарь: {currentGarbageType} | Цель: {targetStr}";
+        string info = $"пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ: {stateStr} | пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ: {currentGarbageType} | пїЅпїЅпїЅпїЅ: {targetStr}";
 
-        // Выводим в консоль
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         Debug.Log(info);
     }
 
@@ -355,15 +355,15 @@ public class FuzzyLogicSystem : MonoBehaviour
     {
         if (!showDebug) return;
 
-        // Радиус обнаружения
+        // пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, detectionRadius);
 
-        // Направление движения
+        // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         Gizmos.color = Color.blue;
         Gizmos.DrawRay(transform.position, movementDirection * 1f);
 
-        // Цель
+        // пїЅпїЅпїЅпїЅ
         if (currentTarget != null)
         {
             Gizmos.color = (currentState == RobotState.GoingToTrashbin) ? Color.green : Color.red;
@@ -371,8 +371,9 @@ public class FuzzyLogicSystem : MonoBehaviour
             Gizmos.DrawWireSphere(currentTarget.position, 0.3f);
         }
 
-        // Зона избегания препятствий
+        // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
         Gizmos.color = new Color(1f, 0.5f, 0f, 0.3f);
         Gizmos.DrawWireSphere(transform.position, obstacleAvoidDistance);
     }
+}
 }

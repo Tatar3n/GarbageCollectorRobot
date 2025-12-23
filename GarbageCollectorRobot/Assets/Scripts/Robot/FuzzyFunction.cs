@@ -25,13 +25,13 @@ public class FuzzyFunction : MonoBehaviour
                 //прямая линия и убывание только в конце правого
                 q3=(3f-k2)/2f;
             }
-            else if (k1 < k2)
+            else if (k1 < k2)//есть ещё перемычка в середине между медленно и средне
             {
                 //в перемычке
                 q1=k1/2f;//начинает возрастать
                 q2=k2/2f;//закончивает возрастать
                 //в коные
-                q3=(3f-k2)/2f;//начинает убывать
+                q3=(6f-k2)/2f;//начинает убывать
             }
             else if (k1 > k2)
             {
@@ -40,7 +40,7 @@ public class FuzzyFunction : MonoBehaviour
                 q1=(1f-k1)/2f;//начинает убывать
                 q2=(1f-k2)/2f;//закончивает убывать
                 //в коные
-                q3=(3f-k2)/2f;//начинает убывать
+                q3=(6f-k2)/2f;//начинает убывать
             }
         }
         else if (part_funtion == 2.5f)// быстро зависит от далеко 
@@ -171,7 +171,9 @@ public class FuzzyFunction : MonoBehaviour
             }
             else if (k1 < k2)
             {
-                return (Integrate(0f,k1,0f,q1,true)+Integrate(2f,0f,q1,q2,true)+Integrate(0f,k2,q2,q3,true)+Integrate(-2f,6f,q3,3f,true))/(Integrate(0f,k1,0f,q1,false)+Integrate(2f,0f,q1,q2,false)+Integrate(0f,k2,q2,q3,false)+Integrate(-2f,6f,q3,3f,false));
+                float q4=(3f-k2)/2f;
+                float q5=(k2+2f)/2f;
+                return (Integrate(0f,k1,0f,q1,true)+Integrate(2f,0f,q1,q2,true)+Integrate(0f,k2,q2,q4,true)+Integrate(-2f,3f,q4,1.25f,true)+Integrate(2f,-2f,1.25f,q5,true)+Integrate(0f,k2,q5,q3,true)+Integrate(-2f,6f,q3,3f,true))/(Integrate(0f,k1,0f,q1,false)+Integrate(2f,0f,q1,q2,false)+Integrate(0f,k2,q2,q4,false)+Integrate(-2f,3f,q4,1.25f,false)+Integrate(2f,-2f,1.25f,q5,false)+Integrate(0f,k2,q5,q3,false)+Integrate(-2f,6f,q3,3f,false));
             }
             else if (k1 > k2)
             {
@@ -180,8 +182,8 @@ public class FuzzyFunction : MonoBehaviour
         }
         else if (part_funtion == 2f)// средне зависит от средне
         {
-            //в ручную центр масс = 3.59375/2.375
-            return 3.59375f/2.375f;
+            //в ручную центр масс = 3,59375/2,375
+            return (Integrate(2f,0,0f,0.5f,true)+Integrate(0f,1f,0.5f,1f,true)+Integrate(-2f,3f,1f,1.25f,true)+Integrate(2f,-2f,1.25f,1.5f,true)+Integrate(0f,1f,1.5f,2.5f,true)+Integrate(-2f,6f,2.5f,3f,true))/(Integrate(2f,0,0f,0.5f,false)+Integrate(0f,1f,0.5f,1f,false)+Integrate(-2f,3f,1f,1.25f,false)+Integrate(2f,-2f,1.25f,1.5f,false)+Integrate(0f,1f,1.5f,2.5f,false)+Integrate(-2f,6f,2.5f,3f,false));
         }
         else if (part_funtion == 2.5f)// быстро зависит от далеко 
         {
@@ -195,9 +197,11 @@ public class FuzzyFunction : MonoBehaviour
             {
                 return (Integrate(2f,0f,0f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(2f,-5f,q2,q3,true)+Integrate(0f,k2,q3,3f,true))/(Integrate(2f,0f,0f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(2f,-5f,q2,q3,false)+Integrate(0f,k2,q3,3f,false));
             }
-            else if (k1 > k2)
+            else if (k1 > k2)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
             {
-                return (Integrate(2f,0f,0f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(-2f,6f,q2,q3,true)+Integrate(0f,k2,q3,3f,true))/(Integrate(2f,0f,0f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(-2f,6f,q2,q3,false)+Integrate(0f,k2,q3,3f,false));
+                float q4=(3f-k1)/2f;
+                float q5=(k1+2f)/2f;
+                return (Integrate(2f,0f,0f,q1,true)+Integrate(0f,k1,q1,q4,true)+Integrate(-2f,3f,q4,1.25f,true)+Integrate(2f,-2f,1.25f,q5,true)+Integrate(0f,k1,q5,q2,true)+Integrate(-2f,6f,q2,q3,true)+Integrate(0f,k2,q3,3f,true))/(Integrate(2f,0f,0f,q1,false)+Integrate(0f,k1,q1,q4,false)+Integrate(-2f,3f,q4,1.25f,false)+Integrate(2f,-2f,1.25f,q5,false)+Integrate(0f,k1,q5,q2,false)+Integrate(-2f,6f,q2,q3,false)+Integrate(0f,k2,q3,3f,false));
             }
         }
         else if (part_funtion == 3f)//медлено зависи от очень близко

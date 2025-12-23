@@ -17,10 +17,11 @@ public class Raycast2DExample : MonoBehaviour
         
         if (hit.collider != null)
         {
-            Debug.Log($"Обнаружен объект: {hit.collider.tag}");
-            Debug.Log($"Расстояние: {hit.distance}");
-            Debug.Log($"Точка попадания: {hit.point}");
-            Debug.Log($"Нормаль: {hit.normal}");
+            //Debug.Log($"Обнаружен объект: {hit.collider.tag}");
+            //Debug.Log($"Расстояние: {hit.distance}");
+            //Debug.Log($"Точка попадания: {hit.point}");
+            //Debug.Log($"Нормаль: {hit.normal}");
+            
             
             if (hit.collider.TryGetComponent<Rigidbody2D>(out var rb))
             {

@@ -258,6 +258,8 @@ public class FuzzyLogicSystem : MonoBehaviour
         {
             float frontDist = CheckObstacleDistance(frontSensor, Vector2.up);
             speed = fuzzyFunction.Sentr_mass(frontDist);
+            Debug.Log($"Скорость: {speed}");
+            Debug.Log($"Дистанция: {frontDist}");
         }
 
         if (backSensor != null)

@@ -1,34 +1,34 @@
-using System.Collections;
-using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.ComponentModel;
-using System.Globalization;
-using System.Security.Cryptography;
-using System.Timers;
 using UnityEngine;
-using UnityEngine.Tilemaps;
 
 public class Move : MonoBehaviour
 {
     private Rigidbody2D _rigidbody;
-    private BoxCollider2D _boxCollider;
-    private Vector2 _horizontalVelocity; 
-    private float _horizontalSpeed; 
-    private Vector2 _verticalVelocity; 
-    private float _verticalSpeed; 
-    public float moveSpeed; 
+    private float _horizontalSpeed;
+    private float _verticalSpeed;
+
+    public float moveSpeed;
 
     void Start()
     {
         _rigidbody = GetComponent<Rigidbody2D>();
-        _boxCollider = GetComponent<BoxCollider2D>();
-        _rigidbody.gravityScale = 0; 
+
+        // Если на объекте есть ИИ-движение, не конфликтуем с ним.
+        var ai = GetComponent<Fuzzy.FuzzyLogicSystem>();
+        if (ai != null && ai.enabled)
+        {
+            enabled = false;
+            return;
+        }
+
+        if (_rigidbody != null)
+        {
+            _rigidbody.gravityScale = 0f;
+            _rigidbody.constraints = RigidbodyConstraints2D.FreezeRotation;
+        }
     }
 
     void Update()
     {
-        _rigidbody.constraints = RigidbodyConstraints2D.None;
-        _rigidbody.constraints = RigidbodyConstraints2D.FreezeRotation;
         _horizontalSpeed = Input.GetAxis("Horizontal");
         _verticalSpeed = Input.GetAxis("Vertical");
     }
@@ -40,8 +40,7 @@ public class Move : MonoBehaviour
 
     private void Step()
     {
-        _horizontalVelocity.Set(_horizontalSpeed * moveSpeed, _rigidbody.velocity.y);
-        _verticalVelocity.Set(_rigidbody.velocity.x, _verticalSpeed * moveSpeed);
-        _rigidbody.velocity = new Vector2(_horizontalVelocity.x, _verticalVelocity.y);
+        if (_rigidbody == null) return;
+        _rigidbody.velocity = new Vector2(_horizontalSpeed * moveSpeed, _verticalSpeed * moveSpeed);
     }
 }

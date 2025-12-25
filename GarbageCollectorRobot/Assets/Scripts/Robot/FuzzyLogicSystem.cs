@@ -50,6 +50,12 @@ namespace Fuzzy
         [Tooltip("Exit wall-following if front is clear farther than this fraction of obstacleAvoidDistance.")]
         [Range(0.8f, 2f)]
         public float wallFollowExitFactor = 1.2f;
+        [Tooltip("Fail-safe: maximum time to keep wall-following before forcing a reset.")]
+        public float wallFollowMaxDuration = 4f;
+        [Tooltip("If robot is not progressing while wall-following, try flipping side after this time.")]
+        public float wallFollowFlipStuckTime = 0.65f;
+        [Tooltip("Cooldown between wall-follow side flips.")]
+        public float wallFollowFlipCooldown = 1.1f;
 
         [Header("Anti-stuck")]
         [Tooltip("How often we check if the robot is stuck.")]
@@ -105,6 +111,8 @@ namespace Fuzzy
         private bool isWallFollowing = false;
         // -1 = keep wall on left, +1 = keep wall on right
         private int wallFollowSide = 0;
+        private float wallFollowTimer = 0f;
+        private float wallFollowFlipCooldownTimer = 0f;
 
         // Stuck / escape
         private float stuckCheckTimer = 0f;
@@ -521,6 +529,24 @@ namespace Fuzzy
 
             // Таймер фиксации стороны объезда
             if (avoidSideTimer > 0f) avoidSideTimer -= dt;
+
+            // Таймеры wall-follow
+            if (wallFollowFlipCooldownTimer > 0f) wallFollowFlipCooldownTimer -= dt;
+            if (isWallFollowing)
+            {
+                wallFollowTimer += dt;
+                if (enableWallFollowing && wallFollowMaxDuration > 0f && wallFollowTimer >= wallFollowMaxDuration)
+                {
+                    // Fail-safe: не даём бесконечно "липнуть" к стене.
+                    isWallFollowing = false;
+                    wallFollowSide = 0;
+                    wallFollowTimer = 0f;
+                }
+            }
+            else
+            {
+                wallFollowTimer = 0f;
+            }
         }
 
         Vector2 ComputeSteeredDirection(Vector2 desiredDir)
@@ -588,6 +614,7 @@ namespace Fuzzy
                     avoidSideTimer = avoidSideLockTime;
                 }
                 wallFollowSide = -avoidSide;
+                wallFollowTimer = 0f;
             }
 
             if (isWallFollowing)
@@ -597,6 +624,7 @@ namespace Fuzzy
                 {
                     isWallFollowing = false;
                     wallFollowSide = 0;
+                    wallFollowTimer = 0f;
                     // Не сбрасываем avoidSide мгновенно, пусть отработает таймер фиксации.
                 }
                 else
@@ -845,6 +873,19 @@ namespace Fuzzy
                 stuckTimer = 0f;
             }
 
+            // Если в режиме обтекания и нет прогресса — сначала пробуем поменять сторону вдоль стены,
+            // только потом включается полноценный escape.
+            if (enableWallFollowing && isWallFollowing && !isEscaping && wallFollowFlipCooldownTimer <= 0f)
+            {
+                if (stuckTimer >= Mathf.Max(0.01f, wallFollowFlipStuckTime))
+                {
+                    FlipWallFollowSide();
+                    wallFollowFlipCooldownTimer = Mathf.Max(0.01f, wallFollowFlipCooldown);
+                    // Сбрасываем таймер застревания, чтобы дать шанс новому обходу.
+                    stuckTimer = 0f;
+                }
+            }
+
             if (!isEscaping && stuckTimer >= stuckTimeToTrigger)
             {
                 // Escape запускаем только если реально есть препятствие рядом (иначе можно "сорваться" на ровном месте).
@@ -865,6 +906,17 @@ namespace Fuzzy
                     stuckTimer = 0f;
                 }
             }
+        }
+
+        void FlipWallFollowSide()
+        {
+            // Меняем сторону обтекания: wallFollowSide и avoidSide должны остаться согласованными.
+            if (wallFollowSide == 0) wallFollowSide = Random.value < 0.5f ? -1 : 1;
+            wallFollowSide = -wallFollowSide;
+
+            if (avoidSide == 0) avoidSide = Random.value < 0.5f ? -1 : 1;
+            avoidSide = -avoidSide;
+            avoidSideTimer = Mathf.Max(avoidSideTimer, avoidSideLockTime);
         }
 
         void StartEscapeManeuver()

@@ -70,7 +70,8 @@ namespace Fuzzy
         public Transform frontSensor;
         public Transform frontLeftSensor;
         public Transform frontRightSensor;
-        public Transform backSensor;
+        public Transform back1Sensor;
+        public Transform back2Sensor;
         public Transform leftSensor;
         public Transform rightSensor;
 
@@ -152,7 +153,8 @@ namespace Fuzzy
             DisableSensorDebug(frontRightSensor);
             DisableSensorDebug(leftSensor);
             DisableSensorDebug(rightSensor);
-            DisableSensorDebug(backSensor);
+            DisableSensorDebug(back1Sensor);
+            DisableSensorDebug(back2Sensor);
         }
 
         void Update()
@@ -223,7 +225,8 @@ namespace Fuzzy
             EvaluateBoundaryHit(frontSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
             EvaluateBoundaryHit(frontLeftSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
             EvaluateBoundaryHit(frontRightSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(backSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(back1Sensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(back2Sensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
             EvaluateBoundaryHit(leftSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
             EvaluateBoundaryHit(rightSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
 
@@ -405,16 +408,45 @@ namespace Fuzzy
             if (isRotating360)
             {
                 Handle360Rotation();
-                // При развороте на 360° движение равно нулю
                 movementDirection = Vector2.zero;
                 return;
             }
 
             rotationTimer += Time.deltaTime;
-            if (rotationTimer >= rotationInterval && currentState == RobotState.Searching && currentTarget == null && !isNearBoundary)
+
+            // Разворот на 360° - только в состоянии Searching
+            if (rotationTimer >= rotationInterval &&
+                currentState == RobotState.Searching &&
+                !isNearBoundary)
             {
-                Start360Rotation();
-                return;
+                // Но сначала проверим, есть ли мусор в поле зрения
+                bool canStartRotation = true;
+
+                // Проверим сенсорами, нет ли мусора впереди
+                if (frontSensor != null)
+                {
+                    RaycastHit2D hit = Physics2D.Raycast(
+                        frontSensor.position,
+                        GetSensorWorldDirection(frontSensor),
+                        detectionRadius,
+                        garbageLayer
+                    );
+                    if (hit.collider != null)
+                    {
+                        // Если видим мусор - не разворачиваемся, идем к нему
+                        currentTarget = hit.collider.transform;
+                        currentState = RobotState.GoingToGarbage;
+                        rotationTimer = 0f; // Сбросим таймер
+                        canStartRotation = false;
+                        Debug.Log($"Found garbage during rotation check! Going to: {hit.collider.name}");
+                    }
+                }
+
+                if (canStartRotation)
+                {
+                    Start360Rotation();
+                    return;
+                }
             }
 
             Vector2 targetDirection = Vector2.zero;
@@ -429,11 +461,7 @@ namespace Fuzzy
                     return;
                 }
 
-                // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
-                float frontDist = GetMinForwardDistanceForSpeed();
-                targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
-
-                // Safe zone проверка при движении к цели: если у стены — сперва отъезжаем по searchDirection
+                // Safe zone проверка при движении к цели
                 if (isNearBoundary)
                 {
                     Debug.Log("Too close to boundary - moving away before target!");
@@ -442,7 +470,7 @@ namespace Fuzzy
                     return;
                 }
 
-                // Если застряли — делаем короткий "escape" манёвр.
+                // Если застряли — делаем короткий "escape" манёвр
                 if (isEscaping)
                 {
                     movementDirection = escapeDirection;
@@ -450,9 +478,16 @@ namespace Fuzzy
                     return;
                 }
 
-                // Более стабильное уклонение: с "памятью" стороны и касательной составляющей (уменьшает дёрганья).
+                // Более стабильное уклонение
                 movementDirection = ComputeSteeredDirection(toTarget.normalized);
-                // Extra safety: slow down on sharp turns so we don't "cut corners" into obstacles.
+
+                // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
+                float frontDist = GetMinForwardDistanceForSpeed();
+                float moveDist = GetClearanceDistanceForSpeed(movementDirection);
+                float speedDist = Mathf.Min(frontDist, moveDist == float.MaxValue ? frontDist : moveDist);
+                targetSpeed = fuzzyFunction.Sentr_mass(speedDist);
+
+                // Extra safety: slow down on sharp turns
                 ApplyTurnSpeedLimit(frontDist, movementDirection);
                 isAvoiding = avoidSide != 0;
 
@@ -460,10 +495,6 @@ namespace Fuzzy
             }
             else if (currentState == RobotState.Searching)
             {
-                // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
-                float frontDist = GetMinForwardDistanceForSpeed();
-                targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
-
                 // Если близко к границе - двигаемся в безопасном направлении
                 if (isNearBoundary)
                 {
@@ -471,6 +502,7 @@ namespace Fuzzy
                     return;
                 }
 
+                // Обычный поисковой патруль
                 searchTimer += Time.deltaTime;
                 if (searchTimer > searchChangeTime)
                 {
@@ -494,9 +526,18 @@ namespace Fuzzy
                 return;
             }
 
+            // Для состояния Searching (когда нет цели) используем вычисленное направление
             movementDirection = ComputeSteeredDirection(targetDirection.normalized);
-            // Turn-slow for searching movement as well.
-            ApplyTurnSpeedLimit(GetMinForwardDistanceForSpeed(), movementDirection);
+
+            // Speed based on clearance in actual move direction
+            float frontDistSearching = GetMinForwardDistanceForSpeed();
+            float moveDistSearching = GetClearanceDistanceForSpeed(movementDirection);
+            float speedDistSearching = Mathf.Min(frontDistSearching,
+                moveDistSearching == float.MaxValue ? frontDistSearching : moveDistSearching);
+            targetSpeed = fuzzyFunction.Sentr_mass(speedDistSearching);
+
+            // Turn-slow for searching movement as well
+            ApplyTurnSpeedLimit(frontDistSearching, movementDirection);
             isAvoiding = avoidSide != 0;
             if (isAvoiding) rotationTimer = 0f;
         }
@@ -597,7 +638,8 @@ namespace Fuzzy
             AddAvoidanceAndTangent(frontRightSensor, obstacleAvoidDistance, ref repulse, ref tangent, ref hasObstacle);
             AddAvoidanceAndTangent(leftSensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
             AddAvoidanceAndTangent(rightSensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
-            AddAvoidanceAndTangent(backSensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
+            AddAvoidanceAndTangent(back1Sensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
+            AddAvoidanceAndTangent(back2Sensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
 
             // Если препятствий рядом нет — отпускаем "память" стороны.
             if (!hasObstacle)
@@ -771,11 +813,15 @@ namespace Fuzzy
                 return;
             }
 
-            // Если нечётная логика "просит остановиться" — это не застревание.
+            // Если нечётная логика "просит остановиться" — обычно это не застревание.
+            // Но если рядом реально препятствие/граница, робот может "залипнуть" в ноль скорости и не сделать escape.
             if (speed < 0.15f || targetSpeed < 0.15f)
             {
-                stuckTimer = 0f;
-                return;
+                if (!IsObstacleVeryClose())
+                {
+                    stuckTimer = 0f;
+                    return;
+                }
             }
 
             // Escape таймер
@@ -825,7 +871,8 @@ namespace Fuzzy
                 if (frontRightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontRightSensor));
                 if (leftSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(leftSensor));
                 if (rightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(rightSensor));
-                if (backSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(backSensor));
+                if (back1Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back1Sensor));
+                if (back2Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back2Sensor));
 
                 bool nearObstacle = minDist < obstacleAvoidDistance * 1.1f || isNearBoundary;
                 if (nearObstacle)
@@ -848,6 +895,36 @@ namespace Fuzzy
             if (frontLeftSensor) d = Mathf.Min(d, CheckObstacleDistance(frontLeftSensor));
             if (frontRightSensor) d = Mathf.Min(d, CheckObstacleDistance(frontRightSensor));
             return d;
+        }
+
+        float GetClearanceDistanceForSpeed(Vector2 moveDir)
+        {
+            if (moveDir.sqrMagnitude < 0.0001f) return float.MaxValue;
+            Vector2 dir = moveDir.normalized;
+            float len = Mathf.Max(obstacleAvoidDistance, safeDistance) * 2f;
+
+            // Small forward offset helps when the robot is touching colliders.
+            Vector2 origin = (Vector2)transform.position + dir * 0.02f;
+            RaycastHit2D hit = Physics2D.Raycast(origin, dir, len, obstacleLayer);
+            if (showDebug)
+            {
+                Debug.DrawRay(origin, dir * len, hit.collider ? new Color(1f, 0.3f, 0.3f) : new Color(0.3f, 1f, 0.3f));
+            }
+            return hit.collider ? hit.distance : float.MaxValue;
+        }
+
+        bool IsObstacleVeryClose()
+        {
+            float minDist = float.MaxValue;
+            if (frontSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontSensor));
+            if (frontLeftSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontLeftSensor));
+            if (frontRightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontRightSensor));
+            if (leftSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(leftSensor));
+            if (rightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(rightSensor));
+            if (back1Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back1Sensor));
+            if (back2Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back2Sensor));
+
+            return isNearBoundary || minDist < obstacleAvoidDistance * 0.8f;
         }
 
         void StartEscapeManeuver()

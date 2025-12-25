@@ -44,6 +44,16 @@ public class FuzzyLogicSystem : MonoBehaviour
     private enum RobotState { Searching, GoingToGarbage, GoingToTrashbin, Unloading }
     private RobotState currentState = RobotState.Searching;
 
+    private Vector2 GetSensorRayDirection(Transform sensor, Vector2 fallbackDirection)
+    {
+        if (sensor == null) return fallbackDirection.normalized;
+
+        Vector2 fromRobotToSensor = (Vector2)(sensor.position - transform.position);
+        if (fromRobotToSensor.sqrMagnitude > 0.0001f) return fromRobotToSensor.normalized;
+
+        return fallbackDirection.normalized;
+    }
+
     void Start()
     {
         // �������� ���������
@@ -252,48 +262,71 @@ public class FuzzyLogicSystem : MonoBehaviour
 
         // �������� �����������
         Vector2 avoidDirection = Vector2.zero;
+        float nearestObstacleDist = float.MaxValue;
 
         // ��������� ��� 4 �����������
         if (frontSensor != null)
         {
-            float frontDist = CheckObstacleDistance(frontSensor, Vector2.up);
+            Vector2 rayDir = GetSensorRayDirection(frontSensor, Vector2.up);
+            float frontDist = CheckObstacleDistance(frontSensor, rayDir);
+            nearestObstacleDist = Mathf.Min(nearestObstacleDist, frontDist);
+
+            // ������: ����������� ������������ ������ �� ���������� ������ �����
             speed = fuzzyFunction.Sentr_mass(frontDist);
-            Debug.Log($"Скорость: {speed}");
-            Debug.Log($"Дистанция: {frontDist}");
+
+            // ����������� �� ������������ ����� (����� �������� ������ �� �����������)
+            if (frontDist < obstacleAvoidDistance)
+            {
+                avoidDirection += (-rayDir) * (1f - (frontDist / obstacleAvoidDistance));
+            }
         }
 
         if (backSensor != null)
         {
-            float backDist = CheckObstacleDistance(backSensor, Vector2.down);
+            Vector2 rayDir = GetSensorRayDirection(backSensor, Vector2.down);
+            float backDist = CheckObstacleDistance(backSensor, rayDir);
+            nearestObstacleDist = Mathf.Min(nearestObstacleDist, backDist);
             if (backDist < obstacleAvoidDistance)
             {
-                avoidDirection += Vector2.up * (1f - (backDist / obstacleAvoidDistance));
+                avoidDirection += (-rayDir) * (1f - (backDist / obstacleAvoidDistance));
             }
         }
 
         if (leftSensor != null)
         {
-            float leftDist = CheckObstacleDistance(leftSensor, Vector2.left);
+            Vector2 rayDir = GetSensorRayDirection(leftSensor, Vector2.left);
+            float leftDist = CheckObstacleDistance(leftSensor, rayDir);
+            nearestObstacleDist = Mathf.Min(nearestObstacleDist, leftDist);
             if (leftDist < obstacleAvoidDistance)
             {
-                avoidDirection += Vector2.right * (1f - (leftDist / obstacleAvoidDistance));
+                avoidDirection += (-rayDir) * (1f - (leftDist / obstacleAvoidDistance));
             }
         }
 
         if (rightSensor != null)
         {
-            float rightDist = CheckObstacleDistance(rightSensor, Vector2.right);
+            Vector2 rayDir = GetSensorRayDirection(rightSensor, Vector2.right);
+            float rightDist = CheckObstacleDistance(rightSensor, rayDir);
+            nearestObstacleDist = Mathf.Min(nearestObstacleDist, rightDist);
             if (rightDist < obstacleAvoidDistance)
             {
-                avoidDirection += Vector2.left * (1f - (rightDist / obstacleAvoidDistance));
+                avoidDirection += (-rayDir) * (1f - (rightDist / obstacleAvoidDistance));
             }
         }
 
         // ����������� ����������� � ���� � ��������� �����������
         if (avoidDirection.magnitude > 0.1f)
         {
-            // ���������: ��������� �����������
-            movementDirection = (targetDirection + avoidDirection * 2f).normalized;
+            // ���� ����� ������ - ������ ������ ���������, ����� �� "���������" � �����������
+            if (nearestObstacleDist < obstacleAvoidDistance * 0.35f)
+            {
+                movementDirection = avoidDirection.normalized;
+            }
+            else
+            {
+                // ���������: ��������� �����������
+                movementDirection = (targetDirection + avoidDirection * 2f).normalized;
+            }
         }
         else
         {
@@ -304,10 +337,11 @@ public class FuzzyLogicSystem : MonoBehaviour
     float CheckObstacleDistance(Transform sensor, Vector2 direction)
     {
         if (sensor == null) return float.MaxValue;
+        if (direction.sqrMagnitude < 0.0001f) return float.MaxValue;
 
         RaycastHit2D hit = Physics2D.Raycast(
             sensor.position,
-            direction,
+            direction.normalized,
             obstacleAvoidDistance * 1.5f,
             obstacleLayer
         );
@@ -315,7 +349,7 @@ public class FuzzyLogicSystem : MonoBehaviour
         // ������ ��� ��� �������
         if (showDebug)
         {
-            Debug.DrawRay(sensor.position, direction * obstacleAvoidDistance * 1.5f,
+            Debug.DrawRay(sensor.position, direction.normalized * obstacleAvoidDistance * 1.5f,
                 hit.collider ? Color.red : Color.green);
         }
 

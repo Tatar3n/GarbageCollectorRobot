@@ -17,7 +17,7 @@ namespace Fuzzy
         public LayerMask obstacleLayer;
         public LayerMask garbageLayer;
 
-        private readonly FuzzyFunction fuzzyFunction = new FuzzyFunction();
+        private FuzzyFunction fuzzyFunction = new FuzzyFunction();
 
         public Transform frontSensor;
         public Transform backSensor;
@@ -26,7 +26,6 @@ namespace Fuzzy
 
         public bool showDebug = true;
 
-        private Rigidbody2D rb;
         private Inventory inventory;
         private Dictionary<Types.GType, Transform> trashbins = new Dictionary<Types.GType, Transform>();
         private Vector2 movementDirection = Vector2.zero;
@@ -42,28 +41,13 @@ namespace Fuzzy
         private Vector2 rotationStartDirection;
         private bool isNearBoundary = false;
         private float boundaryTimer = 0f;
-        private Vector2 lastBoundaryAvoidDir = Vector2.zero;
-        private Vector2 boundaryAvoidance = Vector2.zero;
+        private Vector2 lastBoundaryNormal = Vector2.zero;
 
         private enum RobotState { Searching, GoingToGarbage, GoingToTrashbin, Unloading }
         private RobotState currentState = RobotState.Searching;
 
         void Start()
         {
-            rb = GetComponent<Rigidbody2D>();
-            if (rb == null)
-            {
-                Debug.LogError("Rigidbody2D component not found!");
-                enabled = false;
-                return;
-            }
-
-            // Сцена сейчас замораживает X/Y (m_Constraints: 7), из-за этого ИИ-движение работает только через transform,
-            // что ломает физику/рейкасты. Размораживаем позиции и оставляем только FreezeRotation.
-            rb.gravityScale = 0f;
-            rb.constraints = RigidbodyConstraints2D.FreezeRotation;
-            rb.collisionDetectionMode = CollisionDetectionMode2D.Continuous;
-
             inventory = GetComponent<Inventory>();
             if (inventory == null)
             {
@@ -89,58 +73,71 @@ namespace Fuzzy
 
             SelectTargetBasedOnState();
             CalculateMovement();
+            Move();
             if (showDebug) DebugInfo();
         }
 
-        void FixedUpdate()
-        {
-            ApplyMovement();
-        }
-
-        Vector2 ForwardDir() => (Vector2)transform.up;
-        Vector2 RightDir() => (Vector2)transform.right;
-
         void CheckBoundariesWithSensors()
         {
-            // Сенсоры должны "смотреть" относительно ориентации робота, а не по осям мира.
-            float frontDist = CheckBoundaryDistance(frontSensor, ForwardDir());
-            float backDist = CheckBoundaryDistance(backSensor, -ForwardDir());
-            float leftDist = CheckBoundaryDistance(leftSensor, -RightDir());
-            float rightDist = CheckBoundaryDistance(rightSensor, RightDir());
-
-            boundaryAvoidance = Vector2.zero;
-            if (frontDist < safeZoneDistance) boundaryAvoidance += -ForwardDir() * (safeZoneDistance - frontDist);
-            if (backDist < safeZoneDistance) boundaryAvoidance += ForwardDir() * (safeZoneDistance - backDist);
-            if (leftDist < safeZoneDistance) boundaryAvoidance += RightDir() * (safeZoneDistance - leftDist);
-            if (rightDist < safeZoneDistance) boundaryAvoidance += -RightDir() * (safeZoneDistance - rightDist);
+            float frontDist = CheckBoundaryDistance(frontSensor, Vector2.up);
+            float backDist = CheckBoundaryDistance(backSensor, Vector2.down);
+            float leftDist = CheckBoundaryDistance(leftSensor, Vector2.left);
+            float rightDist = CheckBoundaryDistance(rightSensor, Vector2.right);
 
             bool wasNearBoundary = isNearBoundary;
-            isNearBoundary = boundaryAvoidance.sqrMagnitude > 0.0001f;
+            isNearBoundary = frontDist < safeZoneDistance || backDist < safeZoneDistance ||
+                            leftDist < safeZoneDistance || rightDist < safeZoneDistance;
 
             if (isNearBoundary)
             {
                 boundaryTimer += Time.deltaTime;
-                Vector2 avoidDir = boundaryAvoidance.normalized;
+
+                Vector2 boundaryNormal = GetBoundaryNormal(frontDist, backDist, leftDist, rightDist);
 
                 if (!wasNearBoundary ||
-                    Vector2.Dot(avoidDir, lastBoundaryAvoidDir) < 0.7f ||
+                    Vector2.Dot(boundaryNormal, lastBoundaryNormal) < 0.7f ||
                     boundaryTimer >= boundaryCooldown)
                 {
-                    // Разворачиваемся в безопасную сторону (и чуть рандомизируем, чтобы не "пилить" вдоль стены).
-                    searchDirection = avoidDir;
-                    float randomAngle = Random.Range(-35f, 35f);
-                    searchDirection = (Quaternion.Euler(0, 0, randomAngle) * searchDirection).normalized;
+                    // ПРОСТАЯ ЛОГИКА: разворачиваемся от стены
+                    searchDirection = -GetDirectionToBoundary(boundaryNormal);
+
+                    // Добавляем случайный угол от -45 до 45 градусов
+                    float randomAngle = Random.Range(-45f, 45f);
+                    searchDirection = Quaternion.Euler(0, 0, randomAngle) * searchDirection;
 
                     searchTimer = 0f;
                     boundaryTimer = 0f;
-                    lastBoundaryAvoidDir = avoidDir;
+                    lastBoundaryNormal = boundaryNormal;
+
+                    Debug.Log($"Near boundary! Turning away to: {searchDirection}");
                 }
             }
             else
             {
-                lastBoundaryAvoidDir = Vector2.zero;
+                lastBoundaryNormal = Vector2.zero;
                 boundaryTimer = 0f;
             }
+        }
+
+        Vector2 GetDirectionToBoundary(Vector2 boundaryNormal)
+        {
+            // Конвертируем нормаль в направление К границе
+            if (boundaryNormal == Vector2.up) return Vector2.down;     // Граница спереди, направление к ней - назад
+            if (boundaryNormal == Vector2.down) return Vector2.up;     // Граница сзади, направление к ней - вперед
+            if (boundaryNormal == Vector2.right) return Vector2.left;  // Граница слева, направление к ней - вправо
+            if (boundaryNormal == Vector2.left) return Vector2.right;  // Граница справа, направление к ней - влево
+
+            return Vector2.zero;
+        }
+
+        Vector2 GetBoundaryNormal(float frontDist, float backDist, float leftDist, float rightDist)
+        {
+            if (frontDist < safeZoneDistance) return Vector2.up;
+            if (backDist < safeZoneDistance) return Vector2.down;
+            if (leftDist < safeZoneDistance) return Vector2.right;
+            if (rightDist < safeZoneDistance) return Vector2.left;
+
+            return Vector2.zero;
         }
 
         float CheckBoundaryDistance(Transform sensor, Vector2 direction)
@@ -294,8 +291,16 @@ namespace Fuzzy
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
                 if (frontSensor != null)
                 {
-                    float frontDist = CheckObstacleDistance(frontSensor, ForwardDir());
+                    float frontDist = CheckObstacleDistance(frontSensor, Vector2.up);
                     speed = fuzzyFunction.Sentr_mass(frontDist);
+                }
+
+                // Safe zone проверка при движении к цели
+                if (isNearBoundary)
+                {
+                    Debug.Log("Can't go to target - too close to boundary!");
+                    movementDirection = Vector2.zero; // Стоим на месте
+                    return;
                 }
 
                 // Простое уклонение от препятствий
@@ -318,7 +323,7 @@ namespace Fuzzy
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
                 if (frontSensor != null)
                 {
-                    float frontDist = CheckObstacleDistance(frontSensor, ForwardDir());
+                    float frontDist = CheckObstacleDistance(frontSensor, Vector2.up);
                     speed = fuzzyFunction.Sentr_mass(frontDist);
                 }
 
@@ -363,30 +368,24 @@ namespace Fuzzy
         {
             Vector2 avoidance = Vector2.zero;
 
-            float leftDist = CheckObstacleDistance(leftSensor, -RightDir());
-            float rightDist = CheckObstacleDistance(rightSensor, RightDir());
-            float frontDist = CheckObstacleDistance(frontSensor, ForwardDir());
+            float leftDist = CheckObstacleDistance(leftSensor, Vector2.left);
+            float rightDist = CheckObstacleDistance(rightSensor, Vector2.right);
+            float frontDist = CheckObstacleDistance(frontSensor, Vector2.up);
 
             // Простая логика: если что-то близко - отъезжаем
             if (leftDist < safeDistance)
             {
-                avoidance += RightDir() * (safeDistance - leftDist);
+                avoidance += Vector2.right * (safeDistance - leftDist);
             }
 
             if (rightDist < safeDistance)
             {
-                avoidance += -RightDir() * (safeDistance - rightDist);
+                avoidance += Vector2.left * (safeDistance - rightDist);
             }
 
             if (frontDist < obstacleAvoidDistance)
             {
-                avoidance += -ForwardDir() * (obstacleAvoidDistance - frontDist);
-            }
-
-            // Усиливаем уход от границы (углы/стены) — это уменьшает "залипание" у стен.
-            if (isNearBoundary)
-            {
-                avoidance += boundaryAvoidance * 2f;
+                avoidance += Vector2.down * (obstacleAvoidDistance - frontDist);
             }
 
             return avoidance;
@@ -427,7 +426,7 @@ namespace Fuzzy
 
             RaycastHit2D hit = Physics2D.Raycast(
                 sensor.position,
-                direction.normalized,
+                direction,
                 obstacleAvoidDistance * 2f,
                 obstacleLayer
             );
@@ -441,17 +440,18 @@ namespace Fuzzy
             return hit.collider ? hit.distance : float.MaxValue;
         }
 
-        void ApplyMovement()
+        void Move()
         {
-            if (rb == null) return;
-            if (isRotating360) return;
-            if (movementDirection.magnitude <= 0.1f) return;
+            if (movementDirection.magnitude > 0.1f)
+            {
+                if (!isRotating360)
+                {
+                    transform.position += (Vector3)movementDirection * speed * Time.deltaTime;
+                }
 
-            Vector2 nextPos = rb.position + movementDirection.normalized * speed * Time.fixedDeltaTime;
-            rb.MovePosition(nextPos);
-
-            float angle = Mathf.Atan2(movementDirection.y, movementDirection.x) * Mathf.Rad2Deg;
-            rb.MoveRotation(angle - 90f);
+                float angle = Mathf.Atan2(movementDirection.y, movementDirection.x) * Mathf.Rad2Deg;
+                transform.rotation = Quaternion.Euler(0, 0, angle - 90f);
+            }
         }
 
         void DebugInfo()

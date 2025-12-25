@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Fuzzy
 {
-public class FuzzyFunction
+public class FuzzyFunction : MonoBehaviour
 {
     public List<float> Suport_Speed(List<float> inputList)//функция для нахождения отрезков где функция возрастает и убывает
     {

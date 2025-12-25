@@ -33,6 +33,22 @@ namespace Fuzzy
         [Tooltip("Distance factor to consider path 'clear' to drop the avoidance lock.")]
         public float clearFactor = 1.15f;
 
+        [Header("Turn safety (prevents corner-cut collisions)")]
+        [Tooltip("Reduce speed on sharp turns. 1 = no slow, 0.3 = strong slow.")]
+        [Range(0.2f, 1f)]
+        public float sharpTurnSpeedFactor = 0.45f;
+        [Tooltip("Angle (deg) where turn slow starts.")]
+        public float turnSlowStartAngle = 20f;
+        [Tooltip("Angle (deg) where max turn slow is reached.")]
+        public float turnSlowFullAngle = 80f;
+        [Tooltip("If an obstacle is closer than this in front, steering snaps (no smoothing) and speed is clamped.")]
+        public float emergencySnapDistance = 0.22f;
+
+        [Header("Boundary / wall interaction")]
+        [Tooltip("Boundary reactions only trigger if we are moving INTO the wall (dot(vel, normal) < -threshold).")]
+        [Range(0f, 1f)]
+        public float boundaryApproachThreshold = 0.15f;
+
         [Header("Anti-stuck")]
         [Tooltip("How often we check if the robot is stuck.")]
         public float stuckCheckInterval = 0.35f;
@@ -128,6 +144,15 @@ namespace Fuzzy
             smoothedMoveDirection = searchDirection;
             lastStuckPos = transform.position;
             targetSpeed = speed;
+
+            // In the current scene, sensor GameObjects have an extra Raycast debug script attached.
+            // It duplicates rays and makes it look like there are "many sensors".
+            DisableSensorDebug(frontSensor);
+            DisableSensorDebug(frontLeftSensor);
+            DisableSensorDebug(frontRightSensor);
+            DisableSensorDebug(leftSensor);
+            DisableSensorDebug(rightSensor);
+            DisableSensorDebug(backSensor);
         }
 
         void Update()
@@ -186,17 +211,21 @@ namespace Fuzzy
             bool wasNearBoundary = isNearBoundary;
             isNearBoundary = false;
 
+            Vector2 travelDir = GetTravelDirectionForBoundary();
+
             RaycastHit2D bestHit = default;
             bool hasHit = false;
             float bestDist = float.MaxValue;
             Vector2 bestNormal = Vector2.zero;
 
-            EvaluateBoundaryHit(frontSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(frontLeftSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(frontRightSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(backSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(leftSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(rightSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            // Boundary detection is intentionally conservative: we only react if we're actually moving INTO a wall.
+            // This prevents side sensors from constantly forcing turn-aways while sliding along walls/corridors.
+            EvaluateBoundaryHit(frontSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(frontLeftSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(frontRightSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(backSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(leftSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(rightSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
 
             if (hasHit)
             {
@@ -230,7 +259,7 @@ namespace Fuzzy
             }
         }
 
-        void EvaluateBoundaryHit(Transform sensor, ref bool hasHit, ref float bestDist, ref RaycastHit2D bestHit, ref Vector2 bestNormal)
+        void EvaluateBoundaryHit(Transform sensor, Vector2 travelDir, ref bool hasHit, ref float bestDist, ref RaycastHit2D bestHit, ref Vector2 bestNormal)
         {
             if (sensor == null) return;
             Vector2 dir = GetSensorWorldDirection(sensor);
@@ -243,6 +272,16 @@ namespace Fuzzy
             }
 
             if (hit.collider == null) return;
+
+            // React only if we're approaching the wall, not sliding parallel to it.
+            if (travelDir.sqrMagnitude > 0.0001f && hit.normal.sqrMagnitude > 0.0001f)
+            {
+                float approach = Vector2.Dot(travelDir.normalized, hit.normal.normalized);
+                if (approach > -Mathf.Max(0.001f, boundaryApproachThreshold))
+                {
+                    return;
+                }
+            }
 
             float d = hit.distance;
             if (d < bestDist)
@@ -413,6 +452,8 @@ namespace Fuzzy
 
                 // Более стабильное уклонение: с "памятью" стороны и касательной составляющей (уменьшает дёрганья).
                 movementDirection = ComputeSteeredDirection(toTarget.normalized);
+                // Extra safety: slow down on sharp turns so we don't "cut corners" into obstacles.
+                ApplyTurnSpeedLimit(frontDist, movementDirection);
                 isAvoiding = avoidSide != 0;
 
                 return;
@@ -454,6 +495,8 @@ namespace Fuzzy
             }
 
             movementDirection = ComputeSteeredDirection(targetDirection.normalized);
+            // Turn-slow for searching movement as well.
+            ApplyTurnSpeedLimit(GetMinForwardDistanceForSpeed(), movementDirection);
             isAvoiding = avoidSide != 0;
             if (isAvoiding) rotationTimer = 0f;
         }
@@ -476,7 +519,16 @@ namespace Fuzzy
 
             if (movementDirection.sqrMagnitude > 0.0001f)
             {
-                smoothedMoveDirection = Vector2.Lerp(smoothedMoveDirection, movementDirection.normalized, dirAlpha);
+                // Emergency: if obstacle is extremely close in front, don't lag steering (prevents late turns -> collisions).
+                float frontDist = GetMinForwardDistanceForSpeed();
+                if (frontDist <= emergencySnapDistance)
+                {
+                    smoothedMoveDirection = movementDirection.normalized;
+                }
+                else
+                {
+                    smoothedMoveDirection = Vector2.Lerp(smoothedMoveDirection, movementDirection.normalized, dirAlpha);
+                }
             }
             else
             {
@@ -488,6 +540,45 @@ namespace Fuzzy
 
             // Таймер фиксации стороны объезда
             if (avoidSideTimer > 0f) avoidSideTimer -= dt;
+        }
+
+        void ApplyTurnSpeedLimit(float frontDist, Vector2 desiredMoveDir)
+        {
+            if (rb == null) return;
+            if (targetSpeed <= 0.01f) return;
+            if (desiredMoveDir.sqrMagnitude < 0.0001f) return;
+
+            Vector2 currentVel = rb.velocity;
+            if (currentVel.sqrMagnitude < 0.01f) return;
+
+            float angle = Vector2.Angle(currentVel.normalized, desiredMoveDir.normalized);
+            float t = Mathf.InverseLerp(Mathf.Max(0f, turnSlowStartAngle), Mathf.Max(turnSlowStartAngle + 0.01f, turnSlowFullAngle), angle);
+            float factor = Mathf.Lerp(1f, sharpTurnSpeedFactor, t);
+
+            // When something is very close in front, clamp even harder (regardless of fuzzy output).
+            if (frontDist <= emergencySnapDistance)
+            {
+                factor = Mathf.Min(factor, sharpTurnSpeedFactor);
+            }
+
+            targetSpeed *= Mathf.Clamp01(factor);
+        }
+
+        Vector2 GetTravelDirectionForBoundary()
+        {
+            if (rb != null && rb.velocity.sqrMagnitude > 0.01f) return rb.velocity;
+            if (smoothedMoveDirection.sqrMagnitude > 0.01f) return smoothedMoveDirection;
+            if (movementDirection.sqrMagnitude > 0.01f) return movementDirection;
+            if (searchDirection.sqrMagnitude > 0.01f) return searchDirection;
+            return Vector2.zero;
+        }
+
+        void DisableSensorDebug(Transform sensor)
+        {
+            if (sensor == null) return;
+            // Raycast2DExample is only for visual debugging; it duplicates rays and confuses tuning.
+            Raycast2DExample dbg = sensor.GetComponent<Raycast2DExample>();
+            if (dbg != null) dbg.enabled = false;
         }
 
         Vector2 ComputeSteeredDirection(Vector2 desiredDir)

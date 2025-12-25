@@ -151,6 +151,13 @@ namespace Fuzzy
             UpdateStuckDetection(Time.fixedDeltaTime);
 
             Vector2 moveDirForPhysics = smoothedMoveDirection;
+
+            // Если выполняется разворот на 360°, останавливаем движение
+            if (isRotating360)
+            {
+                moveDirForPhysics = Vector2.zero;
+            }
+
             if (moveDirForPhysics.magnitude > 0.1f)
             {
                 desiredVelocity = moveDirForPhysics.normalized * speed;
@@ -173,7 +180,7 @@ namespace Fuzzy
 
         void CheckBoundariesWithSensors()
         {
-            // Вычисляем “опасную” границу по сенсорам: берём ближайшее попадание и уходим по нормали стены.
+            // Вычисляем "опасную" границу по сенсорам: берём ближайшее попадание и уходим по нормали стены.
             bool wasNearBoundary = isNearBoundary;
             isNearBoundary = false;
 
@@ -355,6 +362,8 @@ namespace Fuzzy
             if (isRotating360)
             {
                 Handle360Rotation();
+                // При развороте на 360° движение равно нулю
+                movementDirection = Vector2.zero;
                 return;
             }
 
@@ -453,6 +462,15 @@ namespace Fuzzy
 
         void SmoothMovementAndSpeed()
         {
+            // Если выполняется разворот на 360°, сглаживаем движение к нулю
+            if (isRotating360)
+            {
+                float dtа = Time.deltaTime;
+                float dirAlphaa = 1f - Mathf.Exp(-Mathf.Max(0.01f, directionSmoothing) * dtа);
+                smoothedMoveDirection = Vector2.Lerp(smoothedMoveDirection, Vector2.zero, dirAlphaa);
+                return;
+            }
+
             // Экспоненциальное сглаживание (не зависит от FPS).
             float dt = Time.deltaTime;
             float dirAlpha = 1f - Mathf.Exp(-Mathf.Max(0.01f, directionSmoothing) * dt);
@@ -572,7 +590,7 @@ namespace Fuzzy
 
         Vector2 GetSensorWorldDirection(Transform sensor)
         {
-            // Сенсор — точка на корпусе. Направление “наружу” берём от центра робота к сенсору.
+            // Сенсор — точка на корпусе. Направление "наружу" берём от центра робота к сенсору.
             Vector2 fromCenter = (Vector2)sensor.position - (Vector2)transform.position;
             if (fromCenter.sqrMagnitude < 0.0001f) return Vector2.zero;
             return fromCenter.normalized;
@@ -584,7 +602,12 @@ namespace Fuzzy
             currentRotationTime = 0f;
             rotationStartDirection = searchDirection;
             isAvoiding = false;
-            Debug.Log("Starting 360-degree rotation");
+
+            // При начале разворота сразу останавливаем движение
+            movementDirection = Vector2.zero;
+            smoothedMoveDirection = Vector2.zero;
+
+            Debug.Log("Starting 360-degree rotation on spot");
         }
 
         void Handle360Rotation()
@@ -596,7 +619,7 @@ namespace Fuzzy
                 isRotating360 = false;
                 rotationTimer = 0f;
                 searchDirection = Quaternion.Euler(0, 0, 360f) * rotationStartDirection;
-                Debug.Log("360-degree rotation completed");
+                Debug.Log("360-degree rotation on spot completed");
                 return;
             }
 
@@ -604,7 +627,7 @@ namespace Fuzzy
             float rotationAngle = 360f * progress;
 
             searchDirection = Quaternion.Euler(0, 0, rotationAngle) * rotationStartDirection;
-            movementDirection = searchDirection;
+            // Не устанавливаем movementDirection - робот стоит на месте
         }
 
         float CheckObstacleDistance(Transform sensor)
@@ -623,7 +646,13 @@ namespace Fuzzy
 
         void ApplyRotation()
         {
-            if (smoothedMoveDirection.magnitude > 0.1f)
+            // При развороте на 360° поворачиваемся по searchDirection
+            if (isRotating360 && searchDirection.magnitude > 0.1f)
+            {
+                float angle = Mathf.Atan2(searchDirection.y, searchDirection.x) * Mathf.Rad2Deg;
+                transform.rotation = Quaternion.Euler(0, 0, angle - 90f);
+            }
+            else if (smoothedMoveDirection.magnitude > 0.1f)
             {
                 float angle = Mathf.Atan2(smoothedMoveDirection.y, smoothedMoveDirection.x) * Mathf.Rad2Deg;
                 transform.rotation = Quaternion.Euler(0, 0, angle - 90f);
@@ -632,13 +661,20 @@ namespace Fuzzy
 
         void UpdateStuckDetection(float dt)
         {
-            if (isRotating360 || currentState == RobotState.Unloading)
+            // Не проверяем застревание во время разворота на 360°
+            if (isRotating360)
             {
                 ResetStuck();
                 return;
             }
 
-            // Если нечёткая логика "просит остановиться" — это не застревание.
+            if (currentState == RobotState.Unloading)
+            {
+                ResetStuck();
+                return;
+            }
+
+            // Если нечётная логика "просит остановиться" — это не застревание.
             if (speed < 0.15f || targetSpeed < 0.15f)
             {
                 stuckTimer = 0f;
@@ -751,7 +787,7 @@ namespace Fuzzy
             string targetStr = currentTarget != null ?
                 (currentState == RobotState.GoingToTrashbin ? "Trashbin" : "Garbage") : "No target";
 
-            string rotationStr = isRotating360 ? $"Rotating ({(currentRotationTime / rotationDuration) * 100:F0}%)" : "Not rotating";
+            string rotationStr = isRotating360 ? $"Rotating 360° ({(currentRotationTime / rotationDuration) * 100:F0}%)" : "Not rotating";
 
             string info = $"State: {stateStr} | Garbage: {currentGarbageType} | Target: {targetStr} | Avoiding: {isAvoiding} (side={avoidSide}) | Escaping: {isEscaping} | NearBoundary: {isNearBoundary} | {rotationStr} | Speed: {speed:F2}";
             Debug.Log(info);

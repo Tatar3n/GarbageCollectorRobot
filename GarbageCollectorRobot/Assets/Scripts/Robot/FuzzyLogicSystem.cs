@@ -27,6 +27,7 @@ namespace Fuzzy
         public bool showDebug = true;
 
         private Inventory inventory;
+        private Rigidbody2D rb;
         private Dictionary<Types.GType, Transform> trashbins = new Dictionary<Types.GType, Transform>();
         private Vector2 movementDirection = Vector2.zero;
         private Transform currentTarget = null;
@@ -42,6 +43,7 @@ namespace Fuzzy
         private bool isNearBoundary = false;
         private float boundaryTimer = 0f;
         private Vector2 lastBoundaryNormal = Vector2.zero;
+        private Vector2 desiredVelocity = Vector2.zero;
 
         private enum RobotState { Searching, GoingToGarbage, GoingToTrashbin, Unloading }
         private RobotState currentState = RobotState.Searching;
@@ -54,6 +56,21 @@ namespace Fuzzy
                 Debug.LogError("Inventory component not found!");
                 enabled = false;
                 return;
+            }
+
+            rb = GetComponent<Rigidbody2D>();
+            if (rb != null)
+            {
+                // Управление движением берём на себя: без гравитации, без вращения, движение через MovePosition в FixedUpdate.
+                rb.gravityScale = 0f;
+                rb.constraints = RigidbodyConstraints2D.FreezeRotation;
+            }
+
+            // Отключаем ручное управление, чтобы не конфликтовало с ИИ-движением.
+            Move manualMove = GetComponent<Move>();
+            if (manualMove != null)
+            {
+                manualMove.enabled = false;
             }
 
             FindAllTrashbins();
@@ -73,33 +90,61 @@ namespace Fuzzy
 
             SelectTargetBasedOnState();
             CalculateMovement();
-            Move();
+            ApplyRotation();
             if (showDebug) DebugInfo();
+        }
+
+        void FixedUpdate()
+        {
+            // Движение выполняем в физическом тике, чтобы корректно работали коллайдеры/стены.
+            if (movementDirection.magnitude > 0.1f)
+            {
+                desiredVelocity = movementDirection.normalized * speed;
+            }
+            else
+            {
+                desiredVelocity = Vector2.zero;
+            }
+
+            if (rb != null)
+            {
+                rb.velocity = desiredVelocity;
+            }
+            else
+            {
+                transform.position += (Vector3)(desiredVelocity * Time.fixedDeltaTime);
+            }
         }
 
         void CheckBoundariesWithSensors()
         {
-            float frontDist = CheckBoundaryDistance(frontSensor, Vector2.up);
-            float backDist = CheckBoundaryDistance(backSensor, Vector2.down);
-            float leftDist = CheckBoundaryDistance(leftSensor, Vector2.left);
-            float rightDist = CheckBoundaryDistance(rightSensor, Vector2.right);
-
+            // Вычисляем “опасную” границу по сенсорам: берём ближайшее попадание и уходим по нормали стены.
             bool wasNearBoundary = isNearBoundary;
-            isNearBoundary = frontDist < safeZoneDistance || backDist < safeZoneDistance ||
-                            leftDist < safeZoneDistance || rightDist < safeZoneDistance;
+            isNearBoundary = false;
 
-            if (isNearBoundary)
+            RaycastHit2D bestHit = default;
+            bool hasHit = false;
+            float bestDist = float.MaxValue;
+            Vector2 bestNormal = Vector2.zero;
+
+            EvaluateBoundaryHit(frontSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(backSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(leftSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(rightSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+
+            if (hasHit)
             {
+                isNearBoundary = true;
                 boundaryTimer += Time.deltaTime;
 
-                Vector2 boundaryNormal = GetBoundaryNormal(frontDist, backDist, leftDist, rightDist);
+                Vector2 boundaryNormal = bestNormal.sqrMagnitude > 0.0001f ? bestNormal.normalized : Vector2.zero;
 
                 if (!wasNearBoundary ||
                     Vector2.Dot(boundaryNormal, lastBoundaryNormal) < 0.7f ||
                     boundaryTimer >= boundaryCooldown)
                 {
-                    // ПРОСТАЯ ЛОГИКА: разворачиваемся от стены
-                    searchDirection = -GetDirectionToBoundary(boundaryNormal);
+                    // Разворачиваемся ОТ стены по нормали
+                    searchDirection = boundaryNormal.sqrMagnitude > 0.0001f ? boundaryNormal : Random.insideUnitCircle.normalized;
 
                     // Добавляем случайный угол от -45 до 45 градусов
                     float randomAngle = Random.Range(-45f, 45f);
@@ -119,39 +164,28 @@ namespace Fuzzy
             }
         }
 
-        Vector2 GetDirectionToBoundary(Vector2 boundaryNormal)
+        void EvaluateBoundaryHit(Transform sensor, ref bool hasHit, ref float bestDist, ref RaycastHit2D bestHit, ref Vector2 bestNormal)
         {
-            // Конвертируем нормаль в направление К границе
-            if (boundaryNormal == Vector2.up) return Vector2.down;     // Граница спереди, направление к ней - назад
-            if (boundaryNormal == Vector2.down) return Vector2.up;     // Граница сзади, направление к ней - вперед
-            if (boundaryNormal == Vector2.right) return Vector2.left;  // Граница слева, направление к ней - вправо
-            if (boundaryNormal == Vector2.left) return Vector2.right;  // Граница справа, направление к ней - влево
+            if (sensor == null) return;
+            Vector2 dir = GetSensorWorldDirection(sensor);
+            if (dir.sqrMagnitude < 0.0001f) return;
 
-            return Vector2.zero;
-        }
+            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, safeZoneDistance, obstacleLayer);
+            if (showDebug)
+            {
+                Debug.DrawRay(sensor.position, dir * safeZoneDistance, hit.collider ? Color.magenta : Color.cyan);
+            }
 
-        Vector2 GetBoundaryNormal(float frontDist, float backDist, float leftDist, float rightDist)
-        {
-            if (frontDist < safeZoneDistance) return Vector2.up;
-            if (backDist < safeZoneDistance) return Vector2.down;
-            if (leftDist < safeZoneDistance) return Vector2.right;
-            if (rightDist < safeZoneDistance) return Vector2.left;
+            if (hit.collider == null) return;
 
-            return Vector2.zero;
-        }
-
-        float CheckBoundaryDistance(Transform sensor, Vector2 direction)
-        {
-            if (sensor == null) return float.MaxValue;
-
-            RaycastHit2D hit = Physics2D.Raycast(
-                sensor.position,
-                direction,
-                safeZoneDistance * 2f,
-                obstacleLayer
-            );
-
-            return hit.collider ? hit.distance : float.MaxValue;
+            float d = hit.distance;
+            if (d < bestDist)
+            {
+                hasHit = true;
+                bestDist = d;
+                bestHit = hit;
+                bestNormal = hit.normal;
+            }
         }
 
         void FindAllTrashbins()
@@ -291,15 +325,16 @@ namespace Fuzzy
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
                 if (frontSensor != null)
                 {
-                    float frontDist = CheckObstacleDistance(frontSensor, Vector2.up);
+                    float frontDist = CheckObstacleDistance(frontSensor);
                     speed = fuzzyFunction.Sentr_mass(frontDist);
                 }
 
-                // Safe zone проверка при движении к цели
+                // Safe zone проверка при движении к цели: если у стены — сперва отъезжаем по searchDirection
                 if (isNearBoundary)
                 {
-                    Debug.Log("Can't go to target - too close to boundary!");
-                    movementDirection = Vector2.zero; // Стоим на месте
+                    Debug.Log("Too close to boundary - moving away before target!");
+                    movementDirection = searchDirection;
+                    isAvoiding = true;
                     return;
                 }
 
@@ -323,7 +358,7 @@ namespace Fuzzy
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
                 if (frontSensor != null)
                 {
-                    float frontDist = CheckObstacleDistance(frontSensor, Vector2.up);
+                    float frontDist = CheckObstacleDistance(frontSensor);
                     speed = fuzzyFunction.Sentr_mass(frontDist);
                 }
 
@@ -368,27 +403,42 @@ namespace Fuzzy
         {
             Vector2 avoidance = Vector2.zero;
 
-            float leftDist = CheckObstacleDistance(leftSensor, Vector2.left);
-            float rightDist = CheckObstacleDistance(rightSensor, Vector2.right);
-            float frontDist = CheckObstacleDistance(frontSensor, Vector2.up);
-
-            // Простая логика: если что-то близко - отъезжаем
-            if (leftDist < safeDistance)
-            {
-                avoidance += Vector2.right * (safeDistance - leftDist);
-            }
-
-            if (rightDist < safeDistance)
-            {
-                avoidance += Vector2.left * (safeDistance - rightDist);
-            }
-
-            if (frontDist < obstacleAvoidDistance)
-            {
-                avoidance += Vector2.down * (obstacleAvoidDistance - frontDist);
-            }
+            // Отталкиваемся от препятствий по нормали попадания (а не по осям мира).
+            AddAvoidanceFromSensor(frontSensor, obstacleAvoidDistance, ref avoidance);
+            AddAvoidanceFromSensor(leftSensor, safeDistance, ref avoidance);
+            AddAvoidanceFromSensor(rightSensor, safeDistance, ref avoidance);
+            AddAvoidanceFromSensor(backSensor, safeDistance, ref avoidance);
 
             return avoidance;
+        }
+
+        void AddAvoidanceFromSensor(Transform sensor, float thresholdDistance, ref Vector2 avoidance)
+        {
+            if (sensor == null) return;
+            Vector2 dir = GetSensorWorldDirection(sensor);
+            if (dir.sqrMagnitude < 0.0001f) return;
+
+            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, thresholdDistance, obstacleLayer);
+            if (showDebug)
+            {
+                Debug.DrawRay(sensor.position, dir * thresholdDistance, hit.collider ? Color.red : Color.green);
+            }
+
+            if (hit.collider == null) return;
+
+            float dist = Mathf.Max(hit.distance, 0.0001f);
+            float weight = Mathf.Clamp01((thresholdDistance - dist) / thresholdDistance);
+            Vector2 normal = hit.normal.sqrMagnitude > 0.0001f ? hit.normal.normalized : -dir;
+
+            avoidance += normal * weight;
+        }
+
+        Vector2 GetSensorWorldDirection(Transform sensor)
+        {
+            // Сенсор — точка на корпусе. Направление “наружу” берём от центра робота к сенсору.
+            Vector2 fromCenter = (Vector2)sensor.position - (Vector2)transform.position;
+            if (fromCenter.sqrMagnitude < 0.0001f) return Vector2.zero;
+            return fromCenter.normalized;
         }
 
         void Start360Rotation()
@@ -420,35 +470,24 @@ namespace Fuzzy
             movementDirection = searchDirection;
         }
 
-        float CheckObstacleDistance(Transform sensor, Vector2 direction)
+        float CheckObstacleDistance(Transform sensor)
         {
             if (sensor == null) return float.MaxValue;
+            Vector2 dir = GetSensorWorldDirection(sensor);
+            if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
 
-            RaycastHit2D hit = Physics2D.Raycast(
-                sensor.position,
-                direction,
-                obstacleAvoidDistance * 2f,
-                obstacleLayer
-            );
-
+            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
             if (showDebug)
             {
-                Debug.DrawRay(sensor.position, direction * obstacleAvoidDistance * 2f,
-                    hit.collider ? Color.red : Color.green);
+                Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
             }
-
             return hit.collider ? hit.distance : float.MaxValue;
         }
 
-        void Move()
+        void ApplyRotation()
         {
             if (movementDirection.magnitude > 0.1f)
             {
-                if (!isRotating360)
-                {
-                    transform.position += (Vector3)movementDirection * speed * Time.deltaTime;
-                }
-
                 float angle = Mathf.Atan2(movementDirection.y, movementDirection.x) * Mathf.Rad2Deg;
                 transform.rotation = Quaternion.Euler(0, 0, angle - 90f);
             }

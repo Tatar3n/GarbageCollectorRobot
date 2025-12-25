@@ -52,6 +52,8 @@ namespace Fuzzy
         private FuzzyFunction fuzzyFunction = new FuzzyFunction();
 
         public Transform frontSensor;
+        public Transform frontLeftSensor;
+        public Transform frontRightSensor;
         public Transform backSensor;
         public Transform leftSensor;
         public Transform rightSensor;
@@ -190,6 +192,8 @@ namespace Fuzzy
             Vector2 bestNormal = Vector2.zero;
 
             EvaluateBoundaryHit(frontSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(frontLeftSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
+            EvaluateBoundaryHit(frontRightSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
             EvaluateBoundaryHit(backSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
             EvaluateBoundaryHit(leftSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
             EvaluateBoundaryHit(rightSensor, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
@@ -387,11 +391,8 @@ namespace Fuzzy
                 }
 
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
-                if (frontSensor != null)
-                {
-                    float frontDist = CheckObstacleDistance(frontSensor);
-                    targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
-                }
+                float frontDist = GetMinForwardDistanceForSpeed();
+                targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
 
                 // Safe zone проверка при движении к цели: если у стены — сперва отъезжаем по searchDirection
                 if (isNearBoundary)
@@ -419,11 +420,8 @@ namespace Fuzzy
             else if (currentState == RobotState.Searching)
             {
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
-                if (frontSensor != null)
-                {
-                    float frontDist = CheckObstacleDistance(frontSensor);
-                    targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
-                }
+                float frontDist = GetMinForwardDistanceForSpeed();
+                targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
 
                 // Если близко к границе - двигаемся в безопасном направлении
                 if (isNearBoundary)
@@ -504,6 +502,8 @@ namespace Fuzzy
 
             // Репульсия и касательная составляющая по нормалям попаданий.
             AddAvoidanceAndTangent(frontSensor, obstacleAvoidDistance, ref repulse, ref tangent, ref hasObstacle);
+            AddAvoidanceAndTangent(frontLeftSensor, obstacleAvoidDistance, ref repulse, ref tangent, ref hasObstacle);
+            AddAvoidanceAndTangent(frontRightSensor, obstacleAvoidDistance, ref repulse, ref tangent, ref hasObstacle);
             AddAvoidanceAndTangent(leftSensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
             AddAvoidanceAndTangent(rightSensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
             AddAvoidanceAndTangent(backSensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
@@ -574,8 +574,14 @@ namespace Fuzzy
         int ChooseAvoidSide(Vector2 desiredDir)
         {
             // Простая эвристика: выбираем сторону, где "свободнее" (по левому/правому сенсорам).
-            float left = leftSensor ? CheckObstacleDistance(leftSensor) : float.MaxValue;
-            float right = rightSensor ? CheckObstacleDistance(rightSensor) : float.MaxValue;
+            float leftSide = leftSensor ? CheckObstacleDistance(leftSensor) : float.MaxValue;
+            float rightSide = rightSensor ? CheckObstacleDistance(rightSensor) : float.MaxValue;
+            float leftFront = frontLeftSensor ? CheckObstacleDistance(frontLeftSensor) : float.MaxValue;
+            float rightFront = frontRightSensor ? CheckObstacleDistance(frontRightSensor) : float.MaxValue;
+
+            // Для выбора стороны учитываем и "габарит" вперёд по диагонали.
+            float left = Mathf.Min(leftSide, leftFront);
+            float right = Mathf.Min(rightSide, rightFront);
 
             if (Mathf.Abs(left - right) < 0.05f)
             {
@@ -724,6 +730,8 @@ namespace Fuzzy
                 // Escape запускаем только если реально есть препятствие рядом (иначе можно "сорваться" на ровном месте).
                 float minDist = float.MaxValue;
                 if (frontSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontSensor));
+                if (frontLeftSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontLeftSensor));
+                if (frontRightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontRightSensor));
                 if (leftSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(leftSensor));
                 if (rightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(rightSensor));
                 if (backSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(backSensor));
@@ -739,6 +747,16 @@ namespace Fuzzy
                     stuckTimer = 0f;
                 }
             }
+        }
+
+        float GetMinForwardDistanceForSpeed()
+        {
+            // Для скорости берём "самое близкое вперёд": центр + два диагональных габарита.
+            float d = float.MaxValue;
+            if (frontSensor) d = Mathf.Min(d, CheckObstacleDistance(frontSensor));
+            if (frontLeftSensor) d = Mathf.Min(d, CheckObstacleDistance(frontLeftSensor));
+            if (frontRightSensor) d = Mathf.Min(d, CheckObstacleDistance(frontRightSensor));
+            return d;
         }
 
         void StartEscapeManeuver()

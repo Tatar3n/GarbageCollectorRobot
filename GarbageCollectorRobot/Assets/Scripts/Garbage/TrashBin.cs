@@ -5,12 +5,15 @@ using UnityEngine;
 public class TrashBin : MonoBehaviour
 {
     public Types.GType garbageType = Types.GType.Blue;
-    
+
+
     [Header("Спавн объекта")]
     public GameObject spawnPrefab;
     public Vector2 spawnAreaMin = new Vector2(-1f, -1f);
     public Vector2 spawnAreaMax = new Vector2(1f, 1f);
-    public bool spawnAtRandomPosition = true; 
+    public bool spawnAtRandomPosition = true;
+
+    public Vector2 worldSpawnPosition;
 
     void OnTriggerEnter2D(Collider2D collision)
     {
@@ -43,8 +46,9 @@ public class TrashBin : MonoBehaviour
         }
         else
             spawnPosition = (spawnAreaMin + spawnAreaMax) / 2f;
-        Vector2 worldSpawnPosition = (Vector2)transform.position + spawnPosition;
+        worldSpawnPosition += spawnPosition;
         Instantiate(spawnPrefab, worldSpawnPosition, Quaternion.identity);    
         Debug.Log($"Объект создан на позиции: {worldSpawnPosition}");
+        worldSpawnPosition = new Vector2(0, 0);
     }
 }

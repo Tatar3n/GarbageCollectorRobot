@@ -1566,8 +1566,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   speed: 1
-  detectionRadius: 1
+  detectionRadius: 4
   obstacleAvoidDistance: 0.5
+  rotationInterval: 5
+  safeDistance: 0.5
+  rotationDuration: 1
+  safeZoneDistance: 0.5
+  boundaryCooldown: 1
   obstacleLayer:
     serializedVersion: 2
     m_Bits: 1024

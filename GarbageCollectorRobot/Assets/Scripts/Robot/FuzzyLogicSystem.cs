@@ -33,30 +33,6 @@ namespace Fuzzy
         [Tooltip("Distance factor to consider path 'clear' to drop the avoidance lock.")]
         public float clearFactor = 1.15f;
 
-        [Header("Wall following (hugging)")]
-        [Tooltip("When close to a wall/obstacle, slide along it instead of turning away.")]
-        public bool enableWallFollowing = true;
-        [Tooltip("Desired distance to keep from the wall while following.")]
-        public float wallFollowDistance = 0.45f;
-        [Tooltip("How far the side sensor ray should search for the wall.")]
-        public float wallFollowRayLength = 1.2f;
-        [Tooltip("Proportional gain for distance keeping (bigger = more aggressive correction).")]
-        public float wallFollowKp = 2.5f;
-        [Tooltip("Max magnitude of the wall distance correction term.")]
-        public float wallFollowMaxCorrection = 1.2f;
-        [Tooltip("Enter wall-following if front is blocked closer than this fraction of obstacleAvoidDistance.")]
-        [Range(0.1f, 1f)]
-        public float wallFollowEnterFactor = 0.8f;
-        [Tooltip("Exit wall-following if front is clear farther than this fraction of obstacleAvoidDistance.")]
-        [Range(0.8f, 2f)]
-        public float wallFollowExitFactor = 1.2f;
-        [Tooltip("Fail-safe: maximum time to keep wall-following before forcing a reset.")]
-        public float wallFollowMaxDuration = 4f;
-        [Tooltip("If robot is not progressing while wall-following, try flipping side after this time.")]
-        public float wallFollowFlipStuckTime = 0.65f;
-        [Tooltip("Cooldown between wall-follow side flips.")]
-        public float wallFollowFlipCooldown = 1.1f;
-
         [Header("Anti-stuck")]
         [Tooltip("How often we check if the robot is stuck.")]
         public float stuckCheckInterval = 0.35f;
@@ -106,13 +82,6 @@ namespace Fuzzy
         // Avoidance side memory: -1 = left, +1 = right, 0 = not set
         private int avoidSide = 0;
         private float avoidSideTimer = 0f;
-
-        // Wall-following
-        private bool isWallFollowing = false;
-        // -1 = keep wall on left, +1 = keep wall on right
-        private int wallFollowSide = 0;
-        private float wallFollowTimer = 0f;
-        private float wallFollowFlipCooldownTimer = 0f;
 
         // Stuck / escape
         private float stuckCheckTimer = 0f;
@@ -229,23 +198,12 @@ namespace Fuzzy
                     Vector2.Dot(boundaryNormal, lastBoundaryNormal) < 0.7f ||
                     boundaryTimer >= boundaryCooldown)
                 {
-                    // Вместо "отъезда назад" стараемся скользить вдоль стены (wall-follow),
-                    // а если он выключен — уходим по нормали как раньше (без лишней случайности).
-                    if (enableWallFollowing && boundaryNormal.sqrMagnitude > 0.0001f)
-                    {
-                        // Выбираем касательную в сторону текущего движения/поиска, чтобы не дёргаться.
-                        Vector2 preferred = (movementDirection.sqrMagnitude > 0.01f ? movementDirection : searchDirection);
-                        if (preferred.sqrMagnitude < 0.01f) preferred = Vector2.right;
+                    // Разворачиваемся ОТ стены по нормали
+                    searchDirection = boundaryNormal.sqrMagnitude > 0.0001f ? boundaryNormal : Random.insideUnitCircle.normalized;
 
-                        Vector2 tan = Vector2.Perpendicular(boundaryNormal).normalized;
-                        if (Vector2.Dot(tan, preferred) < 0f) tan = -tan;
-                        searchDirection = tan;
-                    }
-                    else
-                    {
-                        // Разворачиваемся ОТ стены по нормали (старое поведение).
-                        searchDirection = boundaryNormal.sqrMagnitude > 0.0001f ? boundaryNormal : Random.insideUnitCircle.normalized;
-                    }
+                    // Добавляем случайный угол от -45 до 45 градусов
+                    float randomAngle = Random.Range(-45f, 45f);
+                    searchDirection = Quaternion.Euler(0, 0, randomAngle) * searchDirection;
 
                     searchTimer = 0f;
                     boundaryTimer = 0f;
@@ -429,20 +387,10 @@ namespace Fuzzy
                 // Safe zone проверка при движении к цели: если у стены — сперва отъезжаем по searchDirection
                 if (isNearBoundary)
                 {
-                    if (enableWallFollowing)
-                    {
-                        // Вместо "отъезда" — скользим вдоль стены, удерживая дистанцию.
-                        movementDirection = ComputeWallFollowDirection(toTarget.normalized);
-                        isAvoiding = true;
-                        return;
-                    }
-                    else
-                    {
-                        Debug.Log("Too close to boundary - moving away before target!");
-                        movementDirection = searchDirection;
-                        isAvoiding = true;
-                        return;
-                    }
+                    Debug.Log("Too close to boundary - moving away before target!");
+                    movementDirection = searchDirection;
+                    isAvoiding = true;
+                    return;
                 }
 
                 // Если застряли — делаем короткий "escape" манёвр.
@@ -454,7 +402,7 @@ namespace Fuzzy
                 }
 
                 // Более стабильное уклонение: с "памятью" стороны и касательной составляющей (уменьшает дёрганья).
-                movementDirection = enableWallFollowing ? ComputeSteeredDirectionWithWallFollow(toTarget.normalized) : ComputeSteeredDirection(toTarget.normalized);
+                movementDirection = ComputeSteeredDirection(toTarget.normalized);
                 isAvoiding = avoidSide != 0;
 
                 return;
@@ -471,11 +419,6 @@ namespace Fuzzy
                 // Если близко к границе - двигаемся в безопасном направлении
                 if (isNearBoundary)
                 {
-                    if (enableWallFollowing)
-                    {
-                        movementDirection = ComputeWallFollowDirection(searchDirection.normalized);
-                        return;
-                    }
                     movementDirection = searchDirection;
                     return;
                 }
@@ -503,7 +446,7 @@ namespace Fuzzy
                 return;
             }
 
-            movementDirection = enableWallFollowing ? ComputeSteeredDirectionWithWallFollow(targetDirection.normalized) : ComputeSteeredDirection(targetDirection.normalized);
+            movementDirection = ComputeSteeredDirection(targetDirection.normalized);
             isAvoiding = avoidSide != 0;
             if (isAvoiding) rotationTimer = 0f;
         }
@@ -529,24 +472,6 @@ namespace Fuzzy
 
             // Таймер фиксации стороны объезда
             if (avoidSideTimer > 0f) avoidSideTimer -= dt;
-
-            // Таймеры wall-follow
-            if (wallFollowFlipCooldownTimer > 0f) wallFollowFlipCooldownTimer -= dt;
-            if (isWallFollowing)
-            {
-                wallFollowTimer += dt;
-                if (enableWallFollowing && wallFollowMaxDuration > 0f && wallFollowTimer >= wallFollowMaxDuration)
-                {
-                    // Fail-safe: не даём бесконечно "липнуть" к стене.
-                    isWallFollowing = false;
-                    wallFollowSide = 0;
-                    wallFollowTimer = 0f;
-                }
-            }
-            else
-            {
-                wallFollowTimer = 0f;
-            }
         }
 
         Vector2 ComputeSteeredDirection(Vector2 desiredDir)
@@ -597,121 +522,6 @@ namespace Fuzzy
                 Vector2 perp = Vector2.Perpendicular(desiredDir).normalized;
                 combined = perp * avoidSide;
             }
-            return combined.normalized;
-        }
-
-        Vector2 ComputeSteeredDirectionWithWallFollow(Vector2 desiredDir)
-        {
-            // Если впереди "упёрлись", то вместо разворота/отъезда включаем обтекание стены.
-            if (enableWallFollowing && ShouldEnterWallFollow())
-            {
-                isWallFollowing = true;
-                // Выбираем сторону объезда, а стену держим на противоположной стороне (чтобы пройти "в просвет").
-                if (avoidSide == 0 || avoidSideTimer <= 0f)
-                {
-                    avoidSide = ChooseAvoidSide(desiredDir);
-                    if (avoidSide == 0) avoidSide = Random.value < 0.5f ? -1 : 1;
-                    avoidSideTimer = avoidSideLockTime;
-                }
-                wallFollowSide = -avoidSide;
-                wallFollowTimer = 0f;
-            }
-
-            if (isWallFollowing)
-            {
-                // Выход из wall-follow, если впереди стало достаточно свободно.
-                if (ShouldExitWallFollow())
-                {
-                    isWallFollowing = false;
-                    wallFollowSide = 0;
-                    wallFollowTimer = 0f;
-                    // Не сбрасываем avoidSide мгновенно, пусть отработает таймер фиксации.
-                }
-                else
-                {
-                    return ComputeWallFollowDirection(desiredDir);
-                }
-            }
-
-            return ComputeSteeredDirection(desiredDir);
-        }
-
-        bool ShouldEnterWallFollow()
-        {
-            if (frontSensor == null) return false;
-            float enterDist = obstacleAvoidDistance * Mathf.Clamp(wallFollowEnterFactor, 0.1f, 1f);
-            RaycastHit2D hit = Physics2D.Raycast(frontSensor.position, GetSensorWorldDirection(frontSensor), enterDist, obstacleLayer);
-            if (showDebug) Debug.DrawRay(frontSensor.position, GetSensorWorldDirection(frontSensor) * enterDist, hit.collider ? Color.white : new Color(1f, 1f, 1f, 0.2f));
-            return hit.collider != null;
-        }
-
-        bool ShouldExitWallFollow()
-        {
-            if (frontSensor == null) return true;
-            float exitDist = obstacleAvoidDistance * Mathf.Max(0.01f, wallFollowExitFactor);
-            RaycastHit2D hit = Physics2D.Raycast(frontSensor.position, GetSensorWorldDirection(frontSensor), exitDist, obstacleLayer);
-            if (showDebug) Debug.DrawRay(frontSensor.position, GetSensorWorldDirection(frontSensor) * exitDist, hit.collider ? new Color(0.8f, 0.8f, 1f, 1f) : new Color(0.8f, 0.8f, 1f, 0.2f));
-            return hit.collider == null;
-        }
-
-        Vector2 ComputeWallFollowDirection(Vector2 preferredDir)
-        {
-            // Следуем вдоль ближайшей стены, удерживая расстояние по боковому сенсору выбранной стороны.
-            // Если side ещё не выбран — выбираем как в объезде (держим стену с более близкой стороны).
-            if (wallFollowSide == 0)
-            {
-                float left = leftSensor ? CheckObstacleDistance(leftSensor) : float.MaxValue;
-                float right = rightSensor ? CheckObstacleDistance(rightSensor) : float.MaxValue;
-                if (left < right) wallFollowSide = -1;
-                else if (right < left) wallFollowSide = 1;
-                else wallFollowSide = Random.value < 0.5f ? -1 : 1;
-            }
-
-            Transform sideSensor = wallFollowSide < 0 ? leftSensor : rightSensor;
-            Transform fallbackSensor = frontSensor != null ? frontSensor : sideSensor;
-
-            RaycastHit2D wallHit = default;
-            bool hasHit = false;
-
-            if (sideSensor != null)
-            {
-                Vector2 sideDir = GetSensorWorldDirection(sideSensor);
-                wallHit = Physics2D.Raycast(sideSensor.position, sideDir, Mathf.Max(0.05f, wallFollowRayLength), obstacleLayer);
-                if (showDebug) Debug.DrawRay(sideSensor.position, sideDir * Mathf.Max(0.05f, wallFollowRayLength), wallHit.collider ? Color.yellow : new Color(1f, 1f, 0f, 0.2f));
-                hasHit = wallHit.collider != null;
-            }
-
-            // Если боковой луч не видит стену (например, на угле), используем ближайшее попадание спереди.
-            if (!hasHit && fallbackSensor != null)
-            {
-                Vector2 dir = GetSensorWorldDirection(fallbackSensor);
-                wallHit = Physics2D.Raycast(fallbackSensor.position, dir, obstacleAvoidDistance * 1.5f, obstacleLayer);
-                if (showDebug) Debug.DrawRay(fallbackSensor.position, dir * (obstacleAvoidDistance * 1.5f), wallHit.collider ? Color.yellow : new Color(1f, 1f, 0f, 0.2f));
-                hasHit = wallHit.collider != null;
-            }
-
-            if (!hasHit || wallHit.normal.sqrMagnitude < 0.0001f)
-            {
-                // Нет уверенной стены — просто едем куда хотели.
-                return preferredDir.sqrMagnitude > 0.0001f ? preferredDir.normalized : searchDirection.normalized;
-            }
-
-            Vector2 normal = wallHit.normal.normalized;
-            Vector2 tangent = Vector2.Perpendicular(normal).normalized;
-
-            // Выбираем направление касательной, чтобы оно совпадало с предпочитаемым направлением (к цели/поиску).
-            Vector2 pref = preferredDir.sqrMagnitude > 0.0001f ? preferredDir.normalized : searchDirection.normalized;
-            if (pref.sqrMagnitude < 0.0001f) pref = Vector2.right;
-            if (Vector2.Dot(tangent, pref) < 0f) tangent = -tangent;
-
-            // Коррекция по расстоянию до стены (P-контроллер): err = desired - actual
-            float dist = Mathf.Max(0.0001f, wallHit.distance);
-            float err = wallFollowDistance - dist;
-            float corr = Mathf.Clamp(err * wallFollowKp, -wallFollowMaxCorrection, wallFollowMaxCorrection);
-            Vector2 correction = normal * corr;
-
-            Vector2 combined = tangent + correction;
-            if (combined.sqrMagnitude < 0.0001f) combined = tangent;
             return combined.normalized;
         }
 
@@ -873,19 +683,6 @@ namespace Fuzzy
                 stuckTimer = 0f;
             }
 
-            // Если в режиме обтекания и нет прогресса — сначала пробуем поменять сторону вдоль стены,
-            // только потом включается полноценный escape.
-            if (enableWallFollowing && isWallFollowing && !isEscaping && wallFollowFlipCooldownTimer <= 0f)
-            {
-                if (stuckTimer >= Mathf.Max(0.01f, wallFollowFlipStuckTime))
-                {
-                    FlipWallFollowSide();
-                    wallFollowFlipCooldownTimer = Mathf.Max(0.01f, wallFollowFlipCooldown);
-                    // Сбрасываем таймер застревания, чтобы дать шанс новому обходу.
-                    stuckTimer = 0f;
-                }
-            }
-
             if (!isEscaping && stuckTimer >= stuckTimeToTrigger)
             {
                 // Escape запускаем только если реально есть препятствие рядом (иначе можно "сорваться" на ровном месте).
@@ -908,17 +705,6 @@ namespace Fuzzy
             }
         }
 
-        void FlipWallFollowSide()
-        {
-            // Меняем сторону обтекания: wallFollowSide и avoidSide должны остаться согласованными.
-            if (wallFollowSide == 0) wallFollowSide = Random.value < 0.5f ? -1 : 1;
-            wallFollowSide = -wallFollowSide;
-
-            if (avoidSide == 0) avoidSide = Random.value < 0.5f ? -1 : 1;
-            avoidSide = -avoidSide;
-            avoidSideTimer = Mathf.Max(avoidSideTimer, avoidSideLockTime);
-        }
-
         void StartEscapeManeuver()
         {
             stuckTimer = 0f;
@@ -931,12 +717,8 @@ namespace Fuzzy
             if (avoidSide == 0) avoidSide = Random.value < 0.5f ? -1 : 1;
 
             Vector2 side = Vector2.Perpendicular(baseDir).normalized * avoidSide;
-            // В wall-follow режиме стараемся не "сдавать назад" (это выглядит как разворот назад),
-            // а выталкиваться в сторону и чуть продолжать вперёд.
-            float backoff = enableWallFollowing ? 0f : escapeBackoff;
-            Vector2 back = (-baseDir) * backoff;
-            Vector2 forward = enableWallFollowing ? baseDir * 0.2f : Vector2.zero;
-            Vector2 combined = side + back + forward;
+            Vector2 back = (-baseDir) * escapeBackoff;
+            Vector2 combined = side + back;
 
             if (combined.sqrMagnitude < 0.0001f) combined = side;
             escapeDirection = combined.normalized;

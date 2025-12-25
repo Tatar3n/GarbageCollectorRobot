@@ -13,6 +13,15 @@ namespace Fuzzy
         public float rotationDuration = 1f;
         public float safeZoneDistance = 2f;
         public float boundaryCooldown = 1f;
+        [Header("Sliding obstacle avoidance")]
+        [Tooltip("How long (seconds) to keep chosen wall-follow side to avoid oscillations.")]
+        public float wallFollowStickTime = 0.5f;
+        [Tooltip("Extra lookahead multiplier for deciding if path is blocked.")]
+        public float wallFollowLookahead = 1.25f;
+        [Tooltip("How strongly to push away from obstacle normal while sliding.")]
+        public float wallFollowNormalPush = 0.45f;
+        [Tooltip("How strongly to keep some forward desire while sliding.")]
+        public float wallFollowDesiredPush = 0.20f;
 
         public LayerMask obstacleLayer;
         public LayerMask garbageLayer;
@@ -44,6 +53,9 @@ namespace Fuzzy
         private float boundaryTimer = 0f;
         private Vector2 lastBoundaryAvoidDir = Vector2.zero;
         private Vector2 boundaryAvoidance = Vector2.zero;
+        private bool isWallFollowing = false;
+        private int wallFollowSide = 0; // -1 = left tangent, +1 = right tangent
+        private float wallFollowTimer = 0f;
 
         private enum RobotState { Searching, GoingToGarbage, GoingToTrashbin, Unloading }
         private RobotState currentState = RobotState.Searching;
@@ -99,6 +111,78 @@ namespace Fuzzy
 
         Vector2 ForwardDir() => (Vector2)transform.up;
         Vector2 RightDir() => (Vector2)transform.right;
+
+        RaycastHit2D RaycastObstacle(Vector2 origin, Vector2 direction, float distance)
+        {
+            if (direction.sqrMagnitude < 0.0001f) return default;
+            return Physics2D.Raycast(origin, direction.normalized, distance, obstacleLayer);
+        }
+
+        float ObstacleDistanceFrom(Vector2 origin, Vector2 direction, float distance)
+        {
+            RaycastHit2D hit = RaycastObstacle(origin, direction, distance);
+            return hit.collider ? hit.distance : float.MaxValue;
+        }
+
+        bool TryGetSlidingDirection(Vector2 desiredDirection, out Vector2 slidingDirection)
+        {
+            slidingDirection = Vector2.zero;
+            if (rb == null) return false;
+            if (desiredDirection.sqrMagnitude < 0.0001f) return false;
+
+            bool wasWallFollowing = isWallFollowing;
+
+            // Проверяем, заблокирован ли путь в желаемом направлении.
+            float lookahead = Mathf.Max(0.1f, obstacleAvoidDistance * wallFollowLookahead);
+            RaycastHit2D hit = RaycastObstacle(rb.position, desiredDirection, lookahead);
+
+            if (!hit.collider)
+            {
+                // Если уже "скользим" вдоль стены — отпускаем только когда путь свободен.
+                if (isWallFollowing && wallFollowTimer >= wallFollowStickTime)
+                {
+                    isWallFollowing = false;
+                    wallFollowSide = 0;
+                    wallFollowTimer = 0f;
+                }
+                return false;
+            }
+
+            Vector2 normal = hit.normal.sqrMagnitude > 0.0001f ? hit.normal.normalized : -desiredDirection.normalized;
+            Vector2 tangent = Vector2.Perpendicular(normal).normalized; // один из касательных
+            if (tangent.sqrMagnitude < 0.0001f) return false;
+
+            // Выбираем сторону (касающую), где больше пространства.
+            // Чтобы не "пилить" — удерживаем сторону некоторое время.
+            if (!isWallFollowing || wallFollowTimer >= wallFollowStickTime || wallFollowSide == 0)
+            {
+                float probe = Mathf.Max(safeDistance, 0.25f) * 3f;
+                float distA = ObstacleDistanceFrom(rb.position, tangent, probe);
+                float distB = ObstacleDistanceFrom(rb.position, -tangent, probe);
+                wallFollowSide = distA >= distB ? 1 : -1;
+            }
+
+            Vector2 chosenTangent = wallFollowSide == 1 ? tangent : -tangent;
+
+            // Скользим вдоль стены + слегка отталкиваемся от нормали + немного стремимся в желаемом направлении.
+            Vector2 slide =
+                chosenTangent +
+                (-normal * wallFollowNormalPush) +
+                (desiredDirection.normalized * wallFollowDesiredPush);
+
+            // При близости к границе усиливаем уход — иначе можно "прилипнуть" к углам.
+            if (isNearBoundary)
+            {
+                slide += boundaryAvoidance * 2f;
+            }
+
+            if (slide.sqrMagnitude < 0.0001f) return false;
+
+            isWallFollowing = true;
+            if (!wasWallFollowing) wallFollowTimer = 0f;
+            slidingDirection = slide.normalized;
+            return true;
+        }
 
         void CheckBoundariesWithSensors()
         {
@@ -280,6 +364,7 @@ namespace Fuzzy
             }
 
             Vector2 targetDirection = Vector2.zero;
+            if (isWallFollowing) wallFollowTimer += Time.deltaTime;
 
             if (currentTarget != null && currentState != RobotState.Unloading)
             {
@@ -296,6 +381,15 @@ namespace Fuzzy
                 {
                     float frontDist = CheckObstacleDistance(frontSensor, ForwardDir());
                     speed = fuzzyFunction.Sentr_mass(frontDist);
+                }
+
+                // Скользящий объезд: если путь к цели перекрыт, идём вдоль препятствия.
+                if (TryGetSlidingDirection(toTarget, out var slideDir))
+                {
+                    movementDirection = slideDir;
+                    isAvoiding = true;
+                    rotationTimer = 0f;
+                    return;
                 }
 
                 // Простое уклонение от препятствий
@@ -341,6 +435,15 @@ namespace Fuzzy
             else if (currentState == RobotState.Unloading)
             {
                 movementDirection = Vector2.zero;
+                return;
+            }
+
+            // Скользящий объезд при поиске тоже полезен (объезд конусов/ящиков и т.п.)
+            if (TryGetSlidingDirection(targetDirection, out var slideSearchDir))
+            {
+                movementDirection = slideSearchDir;
+                isAvoiding = true;
+                rotationTimer = 0f;
                 return;
             }
 
@@ -470,7 +573,8 @@ namespace Fuzzy
 
             string rotationStr = isRotating360 ? $"Rotating ({(currentRotationTime / rotationDuration) * 100:F0}%)" : "Not rotating";
 
-            string info = $"State: {stateStr} | Garbage: {currentGarbageType} | Target: {targetStr} | Avoiding: {isAvoiding} | NearBoundary: {isNearBoundary} | {rotationStr} | Speed: {speed:F2}";
+            string wallStr = isWallFollowing ? $"WallFollow(side={wallFollowSide}, t={wallFollowTimer:F2})" : "WallFollow(off)";
+            string info = $"State: {stateStr} | Garbage: {currentGarbageType} | Target: {targetStr} | Avoiding: {isAvoiding} | {wallStr} | NearBoundary: {isNearBoundary} | {rotationStr} | Speed: {speed:F2}";
             Debug.Log(info);
         }
 

@@ -234,7 +234,7 @@ public class FuzzyFunction
         if (part_funtion == 1f)// остановка
         {
             k1 = 2f;
-            if (!left)
+            if (left)
             {
                 k1 *= -1f;
             }
@@ -243,7 +243,7 @@ public class FuzzyFunction
         else if (part_funtion == 1.5f)// быстро зависит от далеко 
         {
             k1 = 1f + 1f - k2;
-            if (!left)
+            if (left)
             {
                 k1 *= -1f;
             }
@@ -252,7 +252,7 @@ public class FuzzyFunction
         else if (part_funtion == 2f)// средне зависит от средне
         {
             k1 = 1f;
-            if (!left)
+            if (left)
             {
                 k1 *= -1f;
             }
@@ -260,7 +260,7 @@ public class FuzzyFunction
         }
         else if (part_funtion == 2.5f)// быстро зависит от далеко 
         {
-            if (!left)
+            if (left)
             {
                 k1 *= -1f;
             }

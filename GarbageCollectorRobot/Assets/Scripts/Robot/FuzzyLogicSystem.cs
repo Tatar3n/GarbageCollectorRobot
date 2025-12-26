@@ -518,7 +518,7 @@ namespace Fuzzy
             if (movementDirection.sqrMagnitude > 0.0001f)
             {
                 // Emergency: if obstacle is extremely close in front, don't lag steering (prevents late turns -> collisions).
-                float frontDist = GetMinForwardDistanceForSpeed();
+                float frontDist = CheckObstacleDistance(frontSensor);
                 if (frontDist <= emergencySnapDistance)
                 {
                     smoothedMoveDirection = movementDirection.normalized;

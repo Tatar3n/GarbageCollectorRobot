@@ -23,16 +23,6 @@ namespace Fuzzy
         [Tooltip("Max acceleration applied to Rigidbody2D velocity (reduces shaking).")]
         public float maxAcceleration = 20f;
 
-        [Header("Obstacle avoidance")]
-        [Tooltip("Weight of pushing away from obstacle normals.")]
-        public float avoidanceWeight = 1.2f;
-        [Tooltip("Weight of tangential (sideways) steering along obstacles.")]
-        public float tangentWeight = 1.0f;
-        [Tooltip("Seconds to keep chosen side when avoiding (prevents left-right twitch).")]
-        public float avoidSideLockTime = 0.8f;
-        [Tooltip("Distance factor to consider path 'clear' to drop the avoidance lock.")]
-        public float clearFactor = 1.15f;
-
         [Header("Turn safety (prevents corner-cut collisions)")]
         [Tooltip("Reduce speed on sharp turns. 1 = no slow, 0.3 = strong slow.")]
         [Range(0.2f, 1f)]
@@ -65,15 +55,11 @@ namespace Fuzzy
         public LayerMask obstacleLayer;
         public LayerMask garbageLayer;
 
-        private FuzzyFunction fuzzyFunction = new FuzzyFunction();
+        private readonly FuzzyFunction fuzzyFunction = new FuzzyFunction();
 
         public Transform frontSensor;
-        public Transform frontLeftSensor;
-        public Transform frontRightSensor;
         public Transform back1Sensor;
         public Transform back2Sensor;
-        public Transform leftSensor;
-        public Transform rightSensor;
 
         public bool showDebug = true;
 
@@ -97,10 +83,6 @@ namespace Fuzzy
         private Vector2 desiredVelocity = Vector2.zero;
         private Vector2 smoothedMoveDirection = Vector2.zero;
         private float targetSpeed = 0f;
-
-        // Avoidance side memory: -1 = left, +1 = right, 0 = not set
-        private int avoidSide = 0;
-        private float avoidSideTimer = 0f;
 
         // Stuck / escape
         private float stuckCheckTimer = 0f;
@@ -149,10 +131,6 @@ namespace Fuzzy
             // In the current scene, sensor GameObjects have an extra Raycast debug script attached.
             // It duplicates rays and makes it look like there are "many sensors".
             DisableSensorDebug(frontSensor);
-            DisableSensorDebug(frontLeftSensor);
-            DisableSensorDebug(frontRightSensor);
-            DisableSensorDebug(leftSensor);
-            DisableSensorDebug(rightSensor);
             DisableSensorDebug(back1Sensor);
             DisableSensorDebug(back2Sensor);
         }
@@ -223,12 +201,8 @@ namespace Fuzzy
             // Boundary detection is intentionally conservative: we only react if we're actually moving INTO a wall.
             // This prevents side sensors from constantly forcing turn-aways while sliding along walls/corridors.
             EvaluateBoundaryHit(frontSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(frontLeftSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(frontRightSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
             EvaluateBoundaryHit(back1Sensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
             EvaluateBoundaryHit(back2Sensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(leftSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
-            EvaluateBoundaryHit(rightSensor, travelDir, ref hasHit, ref bestDist, ref bestHit, ref bestNormal);
 
             if (hasHit)
             {
@@ -449,8 +423,6 @@ namespace Fuzzy
                 }
             }
 
-            Vector2 targetDirection = Vector2.zero;
-
             if (currentTarget != null && currentState != RobotState.Unloading)
             {
                 Vector2 toTarget = (Vector2)currentTarget.position - (Vector2)transform.position;
@@ -478,19 +450,13 @@ namespace Fuzzy
                     return;
                 }
 
-                // Более стабильное уклонение
-                movementDirection = ComputeSteeredDirection(toTarget.normalized);
+                Vector2 baseDir = toTarget.normalized;
+                movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
-                // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ
-                float frontDist = GetMinForwardDistanceForSpeed();
-                float moveDist = GetClearanceDistanceForSpeed(movementDirection);
-                float speedDist = Mathf.Min(frontDist, moveDist == float.MaxValue ? frontDist : moveDist);
-                targetSpeed = fuzzyFunction.Sentr_mass(speedDist);
-
-                // Extra safety: slow down on sharp turns
+                // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ (по переднему датчику)
+                float frontDist = CheckObstacleDistance(frontSensor);
+                targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
                 ApplyTurnSpeedLimit(frontDist, movementDirection);
-                isAvoiding = avoidSide != 0;
-
                 return;
             }
             else if (currentState == RobotState.Searching)
@@ -510,7 +476,13 @@ namespace Fuzzy
                     searchTimer = 0f;
                     searchChangeTime = Random.Range(1f, 3f);
                 }
-                targetDirection = searchDirection;
+                Vector2 baseDir = searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right;
+                movementDirection = ApplyFuzzyObstacleTurn(baseDir);
+
+                float frontDist = CheckObstacleDistance(frontSensor);
+                targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
+                ApplyTurnSpeedLimit(frontDist, movementDirection);
+                return;
             }
             else if (currentState == RobotState.Unloading)
             {
@@ -525,21 +497,6 @@ namespace Fuzzy
                 rotationTimer = 0f;
                 return;
             }
-
-            // Для состояния Searching (когда нет цели) используем вычисленное направление
-            movementDirection = ComputeSteeredDirection(targetDirection.normalized);
-
-            // Speed based on clearance in actual move direction
-            float frontDistSearching = GetMinForwardDistanceForSpeed();
-            float moveDistSearching = GetClearanceDistanceForSpeed(movementDirection);
-            float speedDistSearching = Mathf.Min(frontDistSearching,
-                moveDistSearching == float.MaxValue ? frontDistSearching : moveDistSearching);
-            targetSpeed = fuzzyFunction.Sentr_mass(speedDistSearching);
-
-            // Turn-slow for searching movement as well
-            ApplyTurnSpeedLimit(frontDistSearching, movementDirection);
-            isAvoiding = avoidSide != 0;
-            if (isAvoiding) rotationTimer = 0f;
         }
 
         void SmoothMovementAndSpeed()
@@ -547,9 +504,9 @@ namespace Fuzzy
             // Если выполняется разворот на 360°, сглаживаем движение к нулю
             if (isRotating360)
             {
-                float dtа = Time.deltaTime;
-                float dirAlphaa = 1f - Mathf.Exp(-Mathf.Max(0.01f, directionSmoothing) * dtа);
-                smoothedMoveDirection = Vector2.Lerp(smoothedMoveDirection, Vector2.zero, dirAlphaa);
+                float dtA = Time.deltaTime;
+                float dirAlphaA = 1f - Mathf.Exp(-Mathf.Max(0.01f, directionSmoothing) * dtA);
+                smoothedMoveDirection = Vector2.Lerp(smoothedMoveDirection, Vector2.zero, dirAlphaA);
                 return;
             }
 
@@ -578,9 +535,6 @@ namespace Fuzzy
 
             speed = Mathf.Lerp(speed, targetSpeed, spdAlpha);
             speed = Mathf.Max(0f, speed);
-
-            // Таймер фиксации стороны объезда
-            if (avoidSideTimer > 0f) avoidSideTimer -= dt;
         }
 
         void ApplyTurnSpeedLimit(float frontDist, Vector2 desiredMoveDir)
@@ -622,109 +576,33 @@ namespace Fuzzy
             if (dbg != null) dbg.enabled = false;
         }
 
-        Vector2 ComputeSteeredDirection(Vector2 desiredDir)
+        Vector2 ApplyFuzzyObstacleTurn(Vector2 baseDir)
         {
-            if (desiredDir.sqrMagnitude < 0.0001f) return Vector2.zero;
+            if (baseDir.sqrMagnitude < 0.0001f) return Vector2.zero;
 
-            // Собираем информацию по препятствиям
-            float clearDistance = obstacleAvoidDistance * Mathf.Max(1f, clearFactor);
-            bool hasObstacle = false;
-            Vector2 repulse = Vector2.zero;
-            Vector2 tangent = Vector2.zero;
+            // Берём два габаритных датчика (левый/правый). В Sentr_mass_rotate передаём расстояние
+            // с датчика, который ближе к препятствию.
+            float dRight = back1Sensor ? CheckObstacleDistance(back1Sensor) : float.MaxValue;
+            float dLeft = back2Sensor ? CheckObstacleDistance(back2Sensor) : float.MaxValue;
 
-            // Репульсия и касательная составляющая по нормалям попаданий.
-            AddAvoidanceAndTangent(frontSensor, obstacleAvoidDistance, ref repulse, ref tangent, ref hasObstacle);
-            AddAvoidanceAndTangent(frontLeftSensor, obstacleAvoidDistance, ref repulse, ref tangent, ref hasObstacle);
-            AddAvoidanceAndTangent(frontRightSensor, obstacleAvoidDistance, ref repulse, ref tangent, ref hasObstacle);
-            AddAvoidanceAndTangent(leftSensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
-            AddAvoidanceAndTangent(rightSensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
-            AddAvoidanceAndTangent(back1Sensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
-            AddAvoidanceAndTangent(back2Sensor, safeDistance, ref repulse, ref tangent, ref hasObstacle);
+            float dMin = Mathf.Min(dLeft, dRight);
+            bool isLeft = dLeft <= dRight;
 
-            // Если препятствий рядом нет — отпускаем "память" стороны.
-            if (!hasObstacle)
+            float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, isLeft);
+            if (Mathf.Abs(turnAngle) <= 0.001f)
             {
-                // Доп. проверка "чисто ли впереди": если всё далеко — сбрасываем сторону.
-                if (frontSensor == null || CheckObstacleDistance(frontSensor) > clearDistance)
-                {
-                    avoidSide = 0;
-                    avoidSideTimer = 0f;
-                }
-                return desiredDir.normalized;
+                isAvoiding = false;
+                return baseDir.normalized;
             }
 
-            // Выбираем сторону объезда (и держим некоторое время, чтобы не дёргаться).
-            if (avoidSide == 0 || avoidSideTimer <= 0f)
-            {
-                avoidSide = ChooseAvoidSide(desiredDir);
-                if (avoidSide == 0) avoidSide = Random.value < 0.5f ? -1 : 1;
-                avoidSideTimer = avoidSideLockTime;
-            }
+            isAvoiding = true;
+            rotationTimer = 0f;
 
-            Vector2 steer = desiredDir.normalized;
-            Vector2 avoidance = repulse * avoidanceWeight;
-            Vector2 along = tangent.sqrMagnitude > 0.0001f ? tangent.normalized * (float)avoidSide : Vector2.zero;
-            along *= tangentWeight * Mathf.Clamp01(repulse.magnitude + 0.25f);
+            Vector2 forward = (smoothedMoveDirection.sqrMagnitude > 0.0001f ? smoothedMoveDirection : baseDir).normalized;
+            Vector2 turned = (Vector2)(Quaternion.Euler(0f, 0f, turnAngle) * forward);
+            if (turned.sqrMagnitude < 0.0001f) return baseDir.normalized;
 
-            Vector2 combined = steer + avoidance + along;
-            if (combined.sqrMagnitude < 0.0001f)
-            {
-                // Если вектор почти нулевой (случается в "коридоре") — толкаем в сторону объезда.
-                Vector2 perp = Vector2.Perpendicular(desiredDir).normalized;
-                combined = perp * avoidSide;
-            }
-            return combined.normalized;
-        }
-
-        void AddAvoidanceAndTangent(Transform sensor, float thresholdDistance, ref Vector2 repulse, ref Vector2 tangent, ref bool hasObstacle)
-        {
-            if (sensor == null) return;
-            Vector2 dir = GetSensorWorldDirection(sensor);
-            if (dir.sqrMagnitude < 0.0001f) return;
-
-            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, thresholdDistance, obstacleLayer);
-            if (showDebug)
-            {
-                Debug.DrawRay(sensor.position, dir * thresholdDistance, hit.collider ? Color.red : Color.green);
-            }
-            if (hit.collider == null) return;
-
-            hasObstacle = true;
-            float dist = Mathf.Max(hit.distance, 0.0001f);
-            float w = Mathf.Clamp01((thresholdDistance - dist) / thresholdDistance);
-
-            Vector2 normal = hit.normal.sqrMagnitude > 0.0001f ? hit.normal.normalized : -dir;
-            repulse += normal * w;
-
-            // Касательная к поверхности: перпендикуляр к нормали.
-            Vector2 tan = Vector2.Perpendicular(normal);
-            if (tan.sqrMagnitude > 0.0001f)
-            {
-                tangent += tan.normalized * w;
-            }
-        }
-
-        int ChooseAvoidSide(Vector2 desiredDir)
-        {
-            // Простая эвристика: выбираем сторону, где "свободнее" (по левому/правому сенсорам).
-            float leftSide = leftSensor ? CheckObstacleDistance(leftSensor) : float.MaxValue;
-            float rightSide = rightSensor ? CheckObstacleDistance(rightSensor) : float.MaxValue;
-            float leftFront = frontLeftSensor ? CheckObstacleDistance(frontLeftSensor) : float.MaxValue;
-            float rightFront = frontRightSensor ? CheckObstacleDistance(frontRightSensor) : float.MaxValue;
-
-            // Для выбора стороны учитываем и "габарит" вперёд по диагонали.
-            float left = Mathf.Min(leftSide, leftFront);
-            float right = Mathf.Min(rightSide, rightFront);
-
-            if (Mathf.Abs(left - right) < 0.05f)
-            {
-                // Если одинаково — выбираем по знаку векторного произведения (куда "естественнее" повернуть).
-                Vector2 perp = Vector2.Perpendicular(desiredDir);
-                // Если perp ближе к направлению tangent суммарно, можно было бы учитывать; оставим 0.
-                return 0;
-            }
-            // Больше дистанция => туда и объезжаем: left bigger => поворачиваем влево (-1), right bigger => вправо (+1)
-            return (right > left) ? 1 : -1;
+            return turned.normalized;
         }
 
         Vector2 GetSensorWorldDirection(Transform sensor)
@@ -832,9 +710,6 @@ namespace Fuzzy
                 {
                     isEscaping = false;
                     escapeDirection = Vector2.zero;
-                    // После escape чуть держим сторону, чтобы не "влипнуть" обратно.
-                    if (avoidSide == 0) avoidSide = Random.value < 0.5f ? -1 : 1;
-                    avoidSideTimer = Mathf.Max(avoidSideTimer, avoidSideLockTime * 0.5f);
                 }
             }
 
@@ -867,10 +742,6 @@ namespace Fuzzy
                 // Escape запускаем только если реально есть препятствие рядом (иначе можно "сорваться" на ровном месте).
                 float minDist = float.MaxValue;
                 if (frontSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontSensor));
-                if (frontLeftSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontLeftSensor));
-                if (frontRightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontRightSensor));
-                if (leftSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(leftSensor));
-                if (rightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(rightSensor));
                 if (back1Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back1Sensor));
                 if (back2Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back2Sensor));
 
@@ -887,40 +758,10 @@ namespace Fuzzy
             }
         }
 
-        float GetMinForwardDistanceForSpeed()
-        {
-            // Для скорости берём "самое близкое вперёд": центр + два диагональных габарита.
-            float d = float.MaxValue;
-            if (frontSensor) d = Mathf.Min(d, CheckObstacleDistance(frontSensor));
-            if (frontLeftSensor) d = Mathf.Min(d, CheckObstacleDistance(frontLeftSensor));
-            if (frontRightSensor) d = Mathf.Min(d, CheckObstacleDistance(frontRightSensor));
-            return d;
-        }
-
-        float GetClearanceDistanceForSpeed(Vector2 moveDir)
-        {
-            if (moveDir.sqrMagnitude < 0.0001f) return float.MaxValue;
-            Vector2 dir = moveDir.normalized;
-            float len = Mathf.Max(obstacleAvoidDistance, safeDistance) * 2f;
-
-            // Small forward offset helps when the robot is touching colliders.
-            Vector2 origin = (Vector2)transform.position + dir * 0.02f;
-            RaycastHit2D hit = Physics2D.Raycast(origin, dir, len, obstacleLayer);
-            if (showDebug)
-            {
-                Debug.DrawRay(origin, dir * len, hit.collider ? new Color(1f, 0.3f, 0.3f) : new Color(0.3f, 1f, 0.3f));
-            }
-            return hit.collider ? hit.distance : float.MaxValue;
-        }
-
         bool IsObstacleVeryClose()
         {
             float minDist = float.MaxValue;
             if (frontSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontSensor));
-            if (frontLeftSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontLeftSensor));
-            if (frontRightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontRightSensor));
-            if (leftSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(leftSensor));
-            if (rightSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(rightSensor));
             if (back1Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back1Sensor));
             if (back2Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back2Sensor));
 
@@ -936,17 +777,13 @@ namespace Fuzzy
             Vector2 baseDir = movementDirection.sqrMagnitude > 0.0001f ? movementDirection.normalized : searchDirection.normalized;
             if (baseDir.sqrMagnitude < 0.0001f) baseDir = Vector2.right;
 
-            if (avoidSide == 0) avoidSide = Random.value < 0.5f ? -1 : 1;
-
+            int avoidSide = Random.value < 0.5f ? -1 : 1;
             Vector2 side = Vector2.Perpendicular(baseDir).normalized * avoidSide;
             Vector2 back = (-baseDir) * escapeBackoff;
             Vector2 combined = side + back;
 
             if (combined.sqrMagnitude < 0.0001f) combined = side;
             escapeDirection = combined.normalized;
-
-            // На время escape фиксируем сторону, чтобы не дёргаться.
-            avoidSideTimer = Mathf.Max(avoidSideTimer, avoidSideLockTime);
         }
 
         void ResetStuck()
@@ -975,7 +812,7 @@ namespace Fuzzy
 
             string rotationStr = isRotating360 ? $"Rotating 360° ({(currentRotationTime / rotationDuration) * 100:F0}%)" : "Not rotating";
 
-            string info = $"State: {stateStr} | Garbage: {currentGarbageType} | Target: {targetStr} | Avoiding: {isAvoiding} (side={avoidSide}) | Escaping: {isEscaping} | NearBoundary: {isNearBoundary} | {rotationStr} | Speed: {speed:F2}";
+            string info = $"State: {stateStr} | Garbage: {currentGarbageType} | Target: {targetStr} | Avoiding: {isAvoiding} | Escaping: {isEscaping} | NearBoundary: {isNearBoundary} | {rotationStr} | Speed: {speed:F2}";
             Debug.Log(info);
         }
 

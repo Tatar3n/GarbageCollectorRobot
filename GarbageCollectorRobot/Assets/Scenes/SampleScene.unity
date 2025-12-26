@@ -2252,8 +2252,8 @@ MonoBehaviour:
   frontSensor: {fileID: 681715599}
   frontLeftSensor: {fileID: 2098126882}
   frontRightSensor: {fileID: 845948928}
-  back1Sensor: {fileID: 112914866}
-  back2Sensor: {fileID: 54969749}
+  back1Sensor: {fileID: 845948928}
+  back2Sensor: {fileID: 2098126882}
   leftSensor: {fileID: 1630436228}
   rightSensor: {fileID: 350677587}
   showDebug: 1

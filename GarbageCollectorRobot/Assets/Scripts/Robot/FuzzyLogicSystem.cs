@@ -7,9 +7,9 @@ namespace Fuzzy
     {
         [Header("Movement")]
         public float speed = 3f;
-        [Tooltip("Upper speed limit (used by direct sensor-based speed control). If 0, defaults to initial 'speed'.")]
+        [Tooltip("Upper speed limit. If 0, defaults to initial 'speed'.")]
         public float maxMoveSpeed = 0f;
-        [Tooltip("Lower speed limit (used by direct sensor-based speed control).")]
+        [Tooltip("Lower speed limit.")]
         public float minMoveSpeed = 0f;
         public float detectionRadius = 5f;
         public float obstacleAvoidDistance = 1.5f;
@@ -19,21 +19,13 @@ namespace Fuzzy
         public float safeZoneDistance = 2f;
         public float boundaryCooldown = 1f;
 
-        [Header("Direct sensor-based control")]
-        [Tooltip("If enabled, turning angle and speed are computed directly from sensor distances (no fuzzy speed).")]
-        public bool useDirectSensorControl = true;
-        [Tooltip("Max steering angle (deg) applied around desired direction based on sensor distances.")]
+        [Header("Fuzzy control (sensors -> steering + speed)")]
+        [Tooltip("Max steering angle (deg) produced by fuzzy steering.")]
         [Range(0f, 90f)]
         public float maxSteerAngleDeg = 70f;
-        [Tooltip("Overall steering sensitivity. Higher = more aggressive turns away from obstacles.")]
+        [Tooltip("Overall fuzzy steering gain. Higher = more aggressive turns away from obstacles.")]
         public float steerGain = 1.2f;
-        [Tooltip("Extra steering when something is close in front (bias to the more open side).")]
-        public float frontAvoidBias = 1.0f;
-        [Tooltip("Distance where we consider speed = 0 (direct mode).")]
-        public float stopDistance = 0.22f;
-        [Tooltip("Distance where we reach max speed (direct mode).")]
-        public float fullSpeedDistance = 1.1f;
-        [Tooltip("Weights: how strongly each sensor contributes to left/right 'pressure'.")]
+        [Tooltip("Weights: how strongly each sensor contributes to left/right fuzzy 'obstacle' degrees.")]
         public float weightFront = 1.25f;
         public float weightFrontDiag = 1.0f;
         public float weightSide = 0.9f;
@@ -88,6 +80,8 @@ namespace Fuzzy
 
         public LayerMask obstacleLayer;
         public LayerMask garbageLayer;
+
+        private FuzzyFunction fuzzyFunction = new FuzzyFunction();
 
         public Transform frontSensor;
         public Transform frontLeftSensor;
@@ -504,19 +498,15 @@ namespace Fuzzy
                 }
 
                 // Более стабильное уклонение
-                movementDirection = useDirectSensorControl
-                    ? ComputeSensorBasedDirection(toTarget.normalized)
-                    : ComputeSteeredDirection(toTarget.normalized);
+                movementDirection = ComputeFuzzySteeredDirection(toTarget.normalized);
 
                 // Speed from sensors
                 float frontDist = GetMinForwardDistanceForSpeed();
-                targetSpeed = useDirectSensorControl
-                    ? ComputeTargetSpeedFromSensors(frontDist, movementDirection)
-                    : ComputeFuzzySpeedFallback(frontDist, movementDirection);
+                targetSpeed = ComputeFuzzySpeedFromSensors(movementDirection);
 
                 // Extra safety: slow down on sharp turns
                 ApplyTurnSpeedLimit(frontDist, movementDirection);
-                isAvoiding = avoidSide != 0;
+                isAvoiding = IsObstacleVeryClose();
 
                 return;
             }
@@ -554,128 +544,134 @@ namespace Fuzzy
             }
 
             // Для состояния Searching (когда нет цели) используем вычисленное направление
-            movementDirection = useDirectSensorControl
-                ? ComputeSensorBasedDirection(targetDirection.normalized)
-                : ComputeSteeredDirection(targetDirection.normalized);
+            movementDirection = ComputeFuzzySteeredDirection(targetDirection.normalized);
 
             // Speed from sensors
             float frontDistSearching = GetMinForwardDistanceForSpeed();
-            targetSpeed = useDirectSensorControl
-                ? ComputeTargetSpeedFromSensors(frontDistSearching, movementDirection)
-                : ComputeFuzzySpeedFallback(frontDistSearching, movementDirection);
+            targetSpeed = ComputeFuzzySpeedFromSensors(movementDirection);
 
             // Turn-slow for searching movement as well
             ApplyTurnSpeedLimit(frontDistSearching, movementDirection);
-            isAvoiding = avoidSide != 0;
+            isAvoiding = IsObstacleVeryClose();
             if (isAvoiding) rotationTimer = 0f;
         }
 
-        float ComputeFuzzySpeedFallback(float frontDist, Vector2 moveDir)
+        float ComputeFuzzySpeedFromSensors(Vector2 moveDir)
         {
-            // Backwards-compatible helper: if direct control is turned off.
-            // Previously speed was computed from fuzzy center-of-mass based on min(front, clearance(moveDir)).
-            // We keep a simple non-fuzzy fallback here to avoid hard dependency on FuzzyFunction instantiation.
-            float moveDist = GetClearanceDistanceForSpeed(moveDir);
-            float speedDist = Mathf.Min(frontDist, moveDist == float.MaxValue ? frontDist : moveDist);
-            return ComputeLinearSpeedFromDistance(speedDist);
-        }
+            // Fuzzy speed is computed per sensor (center-of-mass method) and aggregated using fuzzy AND (min),
+            // so ANY close obstacle forces speed down.
 
-        float ComputeTargetSpeedFromSensors(float frontDist, Vector2 moveDir)
-        {
-            // Use closest forward reading, also consider clearance along actual move direction.
-            float moveDist = GetClearanceDistanceForSpeed(moveDir);
-            float d = Mathf.Min(frontDist, moveDist == float.MaxValue ? frontDist : moveDist);
-            return ComputeLinearSpeedFromDistance(d);
-        }
+            float rangeForward = Mathf.Max(1f, obstacleAvoidDistance * 2f);
+            float rangeSide = Mathf.Max(1f, Mathf.Max(safeDistance * 2f, obstacleAvoidDistance));
 
-        float ComputeLinearSpeedFromDistance(float distance)
-        {
+            float dFront = CheckObstacleDistanceInRange(frontSensor, rangeForward, new Color(1f, 0.3f, 0.3f), new Color(0.3f, 1f, 0.3f));
+            float dFL = CheckObstacleDistanceInRange(frontLeftSensor, rangeForward, new Color(1f, 0.3f, 0.3f), new Color(0.3f, 1f, 0.3f));
+            float dFR = CheckObstacleDistanceInRange(frontRightSensor, rangeForward, new Color(1f, 0.3f, 0.3f), new Color(0.3f, 1f, 0.3f));
+            float dL = CheckObstacleDistanceInRange(leftSensor, rangeSide, new Color(1f, 0.3f, 0.3f), new Color(0.3f, 1f, 0.3f));
+            float dR = CheckObstacleDistanceInRange(rightSensor, rangeSide, new Color(1f, 0.3f, 0.3f), new Color(0.3f, 1f, 0.3f));
+            float dBL = CheckObstacleDistanceInRange(back1Sensor, rangeSide, new Color(1f, 0.3f, 0.3f), new Color(0.3f, 1f, 0.3f));
+            float dBR = CheckObstacleDistanceInRange(back2Sensor, rangeSide, new Color(1f, 0.3f, 0.3f), new Color(0.3f, 1f, 0.3f));
+
+            float dMove = GetClearanceDistanceForSpeed(moveDir);
+
+            float sFront = fuzzyFunction.Sentr_mass(dFront);
+            float sFL = fuzzyFunction.Sentr_mass(dFL);
+            float sFR = fuzzyFunction.Sentr_mass(dFR);
+            float sMove = fuzzyFunction.Sentr_mass(dMove == float.MaxValue ? rangeForward : dMove);
+
+            // Side / back have smaller influence on forward speed (still can slow down in corridors).
+            float sL = fuzzyFunction.Sentr_mass(dL) * 0.9f;
+            float sR = fuzzyFunction.Sentr_mass(dR) * 0.9f;
+            float sBL = fuzzyFunction.Sentr_mass(dBL) * 0.8f;
+            float sBR = fuzzyFunction.Sentr_mass(dBR) * 0.8f;
+
+            float s = Mathf.Min(sFront, sFL, sFR, sMove, sL, sR, sBL, sBR);
+
             float maxSpd = (maxMoveSpeed > 0f) ? maxMoveSpeed : cachedMaxSpeed;
-            maxSpd = Mathf.Max(0f, maxSpd);
-            float minSpd = Mathf.Clamp(minMoveSpeed, 0f, maxSpd);
-
-            float stopD = Mathf.Max(0.01f, stopDistance);
-            float fullD = Mathf.Max(stopD + 0.01f, fullSpeedDistance);
-
-            if (distance <= stopD) return 0f;
-
-            float t = Mathf.InverseLerp(stopD, fullD, Mathf.Clamp(distance, stopD, fullD));
-            return Mathf.Lerp(minSpd, maxSpd, t);
+            if (maxSpd > 0f) s = Mathf.Min(s, maxSpd);
+            s = Mathf.Max(0f, s);
+            return s;
         }
 
-        Vector2 ComputeSensorBasedDirection(Vector2 desiredDir)
+        Vector2 ComputeFuzzySteeredDirection(Vector2 desiredDir)
         {
             if (desiredDir.sqrMagnitude < 0.0001f) return Vector2.zero;
 
-            // Read distances (clamped) from each sensor.
-            float front = ReadObstacleDistance(frontSensor, obstacleAvoidDistance);
-            float fl = ReadObstacleDistance(frontLeftSensor, obstacleAvoidDistance);
-            float fr = ReadObstacleDistance(frontRightSensor, obstacleAvoidDistance);
-            float left = ReadObstacleDistance(leftSensor, safeDistance);
-            float right = ReadObstacleDistance(rightSensor, safeDistance);
-            float backL = ReadObstacleDistance(back1Sensor, safeDistance);
-            float backR = ReadObstacleDistance(back2Sensor, safeDistance);
+            // Distances for fuzzy steering (closer => higher membership in "near obstacle").
+            float dFront = CheckObstacleDistanceInRange(frontSensor, obstacleAvoidDistance, Color.red, Color.green);
+            float dFL = CheckObstacleDistanceInRange(frontLeftSensor, obstacleAvoidDistance, Color.red, Color.green);
+            float dFR = CheckObstacleDistanceInRange(frontRightSensor, obstacleAvoidDistance, Color.red, Color.green);
+            float dL = CheckObstacleDistanceInRange(leftSensor, safeDistance, Color.red, Color.green);
+            float dR = CheckObstacleDistanceInRange(rightSensor, safeDistance, Color.red, Color.green);
+            float dBL = CheckObstacleDistanceInRange(back1Sensor, safeDistance, Color.red, Color.green);
+            float dBR = CheckObstacleDistanceInRange(back2Sensor, safeDistance, Color.red, Color.green);
 
-            // Convert distance -> "pressure" (0 far .. 1 very close).
-            float pFront = weightFront * Closeness01(front, obstacleAvoidDistance);
-            float pFL = weightFrontDiag * Closeness01(fl, obstacleAvoidDistance);
-            float pFR = weightFrontDiag * Closeness01(fr, obstacleAvoidDistance);
-            float pL = weightSide * Closeness01(left, safeDistance);
-            float pR = weightSide * Closeness01(right, safeDistance);
-            float pBL = weightBack * Closeness01(backL, safeDistance);
-            float pBR = weightBack * Closeness01(backR, safeDistance);
+            // Membership degrees (0 far .. 1 very close).
+            float nearFront = weightFront * FuzzyNear01(dFront, obstacleAvoidDistance);
+            float nearFL = weightFrontDiag * FuzzyNear01(dFL, obstacleAvoidDistance);
+            float nearFR = weightFrontDiag * FuzzyNear01(dFR, obstacleAvoidDistance);
+            float nearL = weightSide * FuzzyNear01(dL, safeDistance);
+            float nearR = weightSide * FuzzyNear01(dR, safeDistance);
+            float nearBL = weightBack * FuzzyNear01(dBL, safeDistance);
+            float nearBR = weightBack * FuzzyNear01(dBR, safeDistance);
 
-            // Left/right "pressure": obstacle close on right => steer left (positive).
-            float leftPressure = pL + pFL + pBL;
-            float rightPressure = pR + pFR + pBR;
-            float frontPressure = pFront + 0.5f * (pFL + pFR);
+            // Aggregate "obstacle on side" degrees.
+            float obstacleLeft = Mathf.Clamp01(Mathf.Max(nearL, nearFL, nearBL));
+            float obstacleRight = Mathf.Clamp01(Mathf.Max(nearR, nearFR, nearBR));
+            float obstacleFront = Mathf.Clamp01(Mathf.Max(nearFront, 0.6f * Mathf.Max(nearFL, nearFR)));
 
-            float steer = (rightPressure - leftPressure);
+            // Simple Sugeno-like fuzzy inference with 5 outputs: hardLeft, left, straight, right, hardRight.
+            // Positive output = turn LEFT (CCW), negative = turn RIGHT (CW).
+            float wHardLeft = Mathf.Min(obstacleFront, obstacleRight);
+            float wHardRight = Mathf.Min(obstacleFront, obstacleLeft);
+            float wLeft = obstacleRight * (1f - obstacleLeft);
+            float wRight = obstacleLeft * (1f - obstacleRight);
+            float wStraight = (1f - Mathf.Max(obstacleLeft, obstacleRight)) * (1f - 0.6f * obstacleFront);
 
-            // If something is close ahead, bias turn toward the more open side (based on raw distances).
-            if (frontPressure > 0.0001f)
-            {
-                float openLeft = Mathf.Min(left, fl);
-                float openRight = Mathf.Min(right, fr);
+            // If both sides are "near", bias to the more open side (continuous output).
+            float wBias = Mathf.Min(obstacleLeft, obstacleRight);
+            float openLeft = 1f - obstacleLeft;
+            float openRight = 1f - obstacleRight;
+            float biasOut = Mathf.Clamp(openLeft - openRight, -1f, 1f); // + => left more open => turn left
 
-                // +1 means right side more open, -1 means left side more open
-                float openness = 0f;
-                float denom = Mathf.Max(0.001f, obstacleAvoidDistance);
-                openness = Mathf.Clamp((openRight - openLeft) / denom, -1f, 1f);
+            float num =
+                wHardLeft * 1f +
+                wLeft * 0.5f +
+                wStraight * 0f +
+                wRight * -0.5f +
+                wHardRight * -1f +
+                wBias * biasOut;
 
-                // If right is more open -> steer right (negative)
-                steer += (-openness) * frontPressure * frontAvoidBias;
-            }
+            float den = wHardLeft + wLeft + wStraight + wRight + wHardRight + wBias;
+            float steer01 = (den > 0.0001f) ? (num / den) : 0f;
+            steer01 = Mathf.Clamp(steer01 * steerGain, -1f, 1f);
 
-            steer = Mathf.Clamp(steer * steerGain, -1f, 1f);
-            float angle = steer * maxSteerAngleDeg;
-
+            float angle = steer01 * maxSteerAngleDeg;
             Vector2 result = (Vector2)(Quaternion.Euler(0f, 0f, angle) * desiredDir.normalized);
-            if (result.sqrMagnitude < 0.0001f) return desiredDir.normalized;
-            return result.normalized;
+            return result.sqrMagnitude > 0.0001f ? result.normalized : desiredDir.normalized;
         }
 
-        float ReadObstacleDistance(Transform sensor, float maxDistance)
+        float CheckObstacleDistanceInRange(Transform sensor, float range, Color hitColor, Color missColor)
         {
-            if (sensor == null) return maxDistance;
+            if (sensor == null) return float.MaxValue;
             Vector2 dir = GetSensorWorldDirection(sensor);
-            if (dir.sqrMagnitude < 0.0001f) return maxDistance;
+            if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
 
-            float len = Mathf.Max(0.01f, maxDistance);
+            float len = Mathf.Max(0.01f, range);
             RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, len, obstacleLayer);
             if (showDebug)
             {
-                Debug.DrawRay(sensor.position, dir * len, hit.collider ? new Color(1f, 0.6f, 0.2f) : new Color(0.2f, 0.6f, 1f));
+                Debug.DrawRay(sensor.position, dir * len, hit.collider ? hitColor : missColor);
             }
-            return hit.collider ? Mathf.Clamp(hit.distance, 0f, len) : len;
+            return hit.collider ? Mathf.Max(0.0001f, hit.distance) : float.MaxValue;
         }
 
-        float Closeness01(float distance, float maxDistance)
+        float FuzzyNear01(float distance, float range)
         {
-            float len = Mathf.Max(0.01f, maxDistance);
-            float d = Mathf.Clamp(distance, 0f, len);
-            // 1 when d==0, 0 when d==len
-            return 1f - (d / len);
+            // Linear membership for "Near": 1 at distance==0, 0 at distance>=range.
+            float r = Mathf.Max(0.01f, range);
+            if (distance == float.MaxValue) return 0f;
+            return Mathf.Clamp01(1f - (Mathf.Clamp(distance, 0f, r) / r));
         }
 
         void SmoothMovementAndSpeed()

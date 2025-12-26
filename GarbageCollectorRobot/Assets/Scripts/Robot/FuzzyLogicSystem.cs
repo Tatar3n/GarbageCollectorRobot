@@ -83,6 +83,8 @@ namespace Fuzzy
         private Vector2 desiredVelocity = Vector2.zero;
         private Vector2 smoothedMoveDirection = Vector2.zero;
         private float targetSpeed = 0f;
+        private float lastGabaritMinDist = float.MaxValue;
+        private float lastGabaritTurnAngle = 0f;
 
         // Stuck / escape
         private float stuckCheckTimer = 0f;
@@ -455,7 +457,8 @@ namespace Fuzzy
 
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ (по переднему датчику)
                 float frontDist = CheckObstacleDistance(frontSensor);
-                targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
+                float speedDist = Mathf.Min(frontDist, lastGabaritMinDist);
+                targetSpeed = fuzzyFunction.Sentr_mass(speedDist);
                 ApplyTurnSpeedLimit(frontDist, movementDirection);
                 return;
             }
@@ -480,7 +483,8 @@ namespace Fuzzy
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
                 float frontDist = CheckObstacleDistance(frontSensor);
-                targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
+                float speedDist = Mathf.Min(frontDist, lastGabaritMinDist);
+                targetSpeed = fuzzyFunction.Sentr_mass(speedDist);
                 ApplyTurnSpeedLimit(frontDist, movementDirection);
                 return;
             }
@@ -519,7 +523,8 @@ namespace Fuzzy
             {
                 // Emergency: if obstacle is extremely close in front, don't lag steering (prevents late turns -> collisions).
                 float frontDist = CheckObstacleDistance(frontSensor);
-                if (frontDist <= emergencySnapDistance)
+                float snapDist = Mathf.Min(frontDist, lastGabaritMinDist);
+                if (snapDist <= emergencySnapDistance || isAvoiding)
                 {
                     smoothedMoveDirection = movementDirection.normalized;
                 }
@@ -589,6 +594,8 @@ namespace Fuzzy
             bool isLeft = dLeft <= dRight;
 
             float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, isLeft);
+            lastGabaritMinDist = dMin;
+            lastGabaritTurnAngle = turnAngle;
             if (Mathf.Abs(turnAngle) <= 0.001f)
             {
                 isAvoiding = false;
@@ -598,8 +605,9 @@ namespace Fuzzy
             isAvoiding = true;
             rotationTimer = 0f;
 
-            Vector2 forward = (smoothedMoveDirection.sqrMagnitude > 0.0001f ? smoothedMoveDirection : baseDir).normalized;
-            Vector2 turned = (Vector2)(Quaternion.Euler(0f, 0f, turnAngle) * forward);
+            // Важно: поворачиваем ОТ текущей "базовой" цели/поиска, а не от сглаженного прошлого вектора,
+            // иначе создаётся ощущение "поворота в последний момент".
+            Vector2 turned = (Vector2)(Quaternion.Euler(0f, 0f, turnAngle) * baseDir.normalized);
             if (turned.sqrMagnitude < 0.0001f) return baseDir.normalized;
 
             return turned.normalized;

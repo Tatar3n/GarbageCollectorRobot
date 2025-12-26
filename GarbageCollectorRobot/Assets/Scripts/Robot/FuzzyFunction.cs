@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Fuzzy
 {
-public class FuzzyFunction : MonoBehaviour
+public class FuzzyFunction
 {
     public List<float> Suport_Speed(List<float> inputList)//функция для нахождения отрезков где функция возрастает и убывает
     {
@@ -220,6 +220,59 @@ public class FuzzyFunction : MonoBehaviour
             return 3f-((3f-Mathf.Sqrt(5))/4f);
         }
         return 3f-((3f-Mathf.Sqrt(5))/4f);
+    }
+
+    // Поворот по габаритным датчикам (возвращает угол поворота робота, в градусах).
+    // В функцию передаётся расстояние с датчика, который БЛИЖЕ к препятствию,
+    // и признак: левый датчик или правый (true = левый).
+    public float Sentr_mass_rotate(float d, bool left)
+    {
+        List<float> list = distans(d);
+        float part_funtion = list[2];
+        float k1 = list[0];
+        float k2 = list[1];
+        if (part_funtion == 1f)// остановка
+        {
+            k1 = 2f;
+            if (!left)
+            {
+                k1 *= -1f;
+            }
+            return k1 * 45f / 2f;
+        }
+        else if (part_funtion == 1.5f)// быстро зависит от далеко 
+        {
+            k1 = 1f + 1f - k2;
+            if (!left)
+            {
+                k1 *= -1f;
+            }
+            return k1 * 45f / 2f;
+        }
+        else if (part_funtion == 2f)// средне зависит от средне
+        {
+            k1 = 1f;
+            if (!left)
+            {
+                k1 *= -1f;
+            }
+            return k1 * 45f / 2f;
+        }
+        else if (part_funtion == 2.5f)// быстро зависит от далеко 
+        {
+            if (!left)
+            {
+                k1 *= -1f;
+            }
+            // датчики 45 градусов от переднего
+            // берём левый или правый датчик (тот у которого растояние меньше)
+            // поворачиваем в сторону меньшего по показанию датчика
+            // резкость поворота зависит от кофициента уверености к близко (коффициенты написаны в ифах)
+            // максимальный угол поворота пусть будет 45
+            // угол поворота = коффицен * 45 / 2
+            return k1 * 45f / 2f;
+        }
+        return 0f;
     }
 }
 }

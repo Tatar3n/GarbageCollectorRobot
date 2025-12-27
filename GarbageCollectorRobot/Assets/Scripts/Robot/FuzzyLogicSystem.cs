@@ -22,6 +22,8 @@ namespace Fuzzy
         public Vector2 wanderRepathTimeRange = new Vector2(1f, 3f);
         public bool seekTrashBinWhenCarrying = true;
         public float trashBinRefreshInterval = 0.75f;
+        public bool keepWanderPointsOutOfObstacles = true;
+        public int wanderPickAttempts = 12;
 
         [Header("Smoothing")]
         public float directionSmoothing = 10f;
@@ -103,10 +105,6 @@ namespace Fuzzy
         {
             Vector2 baseDesiredDirection = GetBaseDesiredDirection();
 
-            // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ (по переднему датчику)
-            float frontDist = CheckObstacleDistance(frontSensor);
-            targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
-
             // Нечёткая логика для поворота (по боковым датчикам)
             float dRight = back1Sensor ? CheckObstacleDistance(back1Sensor) : float.MaxValue;
             float dLeft = back2Sensor ? CheckObstacleDistance(back2Sensor) : float.MaxValue;
@@ -147,6 +145,10 @@ namespace Fuzzy
             {
                 movementDirection = forward;
             }
+
+            // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ (по направлению движения, чтобы "остановка" работала даже при смене цели)
+            float frontDist = CheckObstacleDistanceInDirection(frontSensor ? (Vector2)frontSensor.position : (Vector2)transform.position, movementDirection);
+            targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
         }
 
         void SmoothMovementAndSpeed()
@@ -195,6 +197,19 @@ namespace Fuzzy
             if (showDebug)
             {
                 Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
+            }
+            return hit.collider ? hit.distance : float.MaxValue;
+        }
+
+        float CheckObstacleDistanceInDirection(Vector2 origin, Vector2 dir)
+        {
+            if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
+            Vector2 nd = dir.normalized;
+            float castDist = obstacleAvoidDistance * 2f;
+            RaycastHit2D hit = Physics2D.Raycast(origin, nd, castDist, obstacleLayer);
+            if (showDebug)
+            {
+                Debug.DrawRay(origin, nd * castDist, hit.collider ? Color.magenta : Color.cyan);
             }
             return hit.collider ? hit.distance : float.MaxValue;
         }
@@ -260,8 +275,26 @@ namespace Fuzzy
         private void PickNewWanderPoint()
         {
             Vector2 center = transform.position;
-            Vector2 offset = Random.insideUnitCircle * Mathf.Max(0.01f, wanderRadius);
-            currentWanderPoint = center + offset;
+            float r = Mathf.Max(0.01f, wanderRadius);
+            Vector2 chosen = center + Random.insideUnitCircle * r;
+
+            if (keepWanderPointsOutOfObstacles)
+            {
+                int attempts = Mathf.Max(1, wanderPickAttempts);
+                for (int i = 0; i < attempts; i++)
+                {
+                    Vector2 candidate = center + Random.insideUnitCircle * r;
+                    bool insideObstacle = Physics2D.OverlapCircle(candidate, 0.05f, obstacleLayer) != null;
+                    bool blocked = Physics2D.Linecast(center, candidate, obstacleLayer).collider != null;
+                    if (!insideObstacle && !blocked)
+                    {
+                        chosen = candidate;
+                        break;
+                    }
+                }
+            }
+
+            currentWanderPoint = chosen;
             hasWanderPoint = true;
 
             float minT = Mathf.Max(0.05f, wanderRepathTimeRange.x);

@@ -119,7 +119,6 @@ namespace Fuzzy
             }
 
             SelectTargetBasedOnState();
-            ApplyRotation();
             if (showDebug) DebugInfo();
         }
 
@@ -128,6 +127,7 @@ namespace Fuzzy
             // Движение выполняем в физическом тике, чтобы корректно работали коллайдеры/стены.
             UpdateStuckDetection(Time.fixedDeltaTime);
             CalculateMovement(Time.fixedDeltaTime);
+            ApplyRotation();
 
             Vector2 moveDirForPhysics = movementDirection;
 
@@ -389,9 +389,36 @@ namespace Fuzzy
             Transform leftS = frontLeftSensor ? frontLeftSensor : back2Sensor;
             Transform rightS = frontRightSensor ? frontRightSensor : back1Sensor;
 
-            float dFront = CheckObstacleDistance(frontSensor, baseDir);
+            RaycastHit2D frontHit = RaycastObstacle(frontSensor ? frontSensor.position : (Vector2)transform.position, baseDir);
+            float dFront = frontHit.collider ? frontHit.distance : float.MaxValue;
             float dLeft = leftS ? CheckObstacleDistance(leftS, baseDir) : float.MaxValue;
             float dRight = rightS ? CheckObstacleDistance(rightS, baseDir) : float.MaxValue;
+
+            // Аварийное объезжание: если прямо перед нами стена очень близко,
+            // поворот на 45° часто всё равно "вжимает" в стену. Вместо этого едем вдоль стены (по касательной).
+            float emergencyDist = obstacleAvoidDistance * 0.55f;
+            if (frontHit.collider != null && dFront <= emergencyDist)
+            {
+                Vector2 n = frontHit.normal.sqrMagnitude > 0.0001f ? frontHit.normal.normalized : -baseDir.normalized;
+                // Две касательные к нормали (вдоль стены)
+                Vector2 t1 = new Vector2(-n.y, n.x).normalized;
+                Vector2 t2 = -t1;
+
+                // Предпочитаем сторону, где больше свободного места по краевым лучам.
+                bool preferRight = dRight > dLeft;
+                Vector2 right = new Vector2(baseDir.y, -baseDir.x).normalized; // CW = "вправо" относительно baseDir
+                Vector2 preferredSide = preferRight ? right : -right;
+
+                Vector2 t = Vector2.Dot(t1, preferredSide) >= Vector2.Dot(t2, preferredSide) ? t1 : t2;
+                // И чтобы не разворачиваться назад, выбираем касательную, которая имеет неотрицательную проекцию на baseDir.
+                if (Vector2.Dot(t, baseDir) < 0f) t = -t;
+
+                isAvoiding = true;
+                rotationTimer = 0f;
+                lastGabaritMinDist = Mathf.Min(dLeft, dRight);
+                // Сильно уводим в касательную, чтобы реально "съезжать" вдоль стены.
+                return Vector2.Lerp(baseDir.normalized, t, 0.9f).normalized;
+            }
 
             float dMin = Mathf.Min(dFront, dLeft, dRight);
             bool obstacleOnLeft = dLeft <= dRight;
@@ -485,6 +512,15 @@ namespace Fuzzy
                 Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
             }
             return hit.collider ? hit.distance : float.MaxValue;
+        }
+
+        RaycastHit2D RaycastObstacle(Vector2 origin, Vector2 castDirection)
+        {
+            Vector2 dir = castDirection.sqrMagnitude > 0.0001f ? castDirection : lastBaseDirection;
+            if (dir.sqrMagnitude < 0.0001f) dir = Vector2.right;
+            dir = dir.normalized;
+            float dist = obstacleAvoidDistance * 2f;
+            return Physics2D.Raycast(origin, dir, dist, obstacleLayer);
         }
 
         void ApplyRotation()

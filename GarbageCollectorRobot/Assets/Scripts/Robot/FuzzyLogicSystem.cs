@@ -172,11 +172,10 @@ namespace Fuzzy
                 case RobotState.Searching:
                     if (!isRotating360)
                     {
-                        // SearchDirection используем только когда датчики "ничего не видят".
-                        if (ObstacleSensorsSeeNothing())
-                        {
-                            FindGarbageWithRay();
-                        }
+                        // Поиск мусора лучом выполняем всегда в режиме Searching.
+                        // Ограничение "датчики ничего не видят" относится к использованию searchDirection для ДВИЖЕНИЯ,
+                        // а не к поиску цели.
+                        FindGarbageWithRay();
                     }
                     if (currentTarget != null)
                     {
@@ -252,8 +251,7 @@ namespace Fuzzy
 
             // Разворот на 360° - только в состоянии Searching
             if (rotationTimer >= rotationInterval &&
-                isSearchingNow &&
-                sensorsClear)
+                isSearchingNow)
             {
                 // Но сначала проверим, есть ли мусор в поле зрения
                 bool canStartRotation = true;
@@ -309,16 +307,15 @@ namespace Fuzzy
             {
                 // SearchDirection должен быть активен ТОЛЬКО когда датчики не видят препятствий.
                 // Если датчики что-то видят — SearchDirection не обновляем и не используем как базовый курс.
-                if (sensorsClear)
+                // Важно: сам searchDirection (внутренний "компас") обновляем рандомно во время поиска всегда,
+                // иначе он может "замереть" навсегда в тесных местах. Но использовать его как базовый курс будем
+                // только когда датчики чистые.
+                searchTimer += Time.deltaTime;
+                if (searchTimer > searchChangeTime)
                 {
-                    // Обычный поисковой патруль
-                    searchTimer += Time.deltaTime;
-                    if (searchTimer > searchChangeTime)
-                    {
-                        searchDirection = Random.insideUnitCircle.normalized;
-                        searchTimer = 0f;
-                        searchChangeTime = Random.Range(1f, 3f);
-                    }
+                    searchDirection = Random.insideUnitCircle.normalized;
+                    searchTimer = 0f;
+                    searchChangeTime = Random.Range(1f, 3f);
                 }
                 Vector2 baseDir;
                 if (sensorsClear)

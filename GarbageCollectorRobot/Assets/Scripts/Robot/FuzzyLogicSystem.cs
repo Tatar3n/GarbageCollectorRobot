@@ -172,7 +172,11 @@ namespace Fuzzy
                 case RobotState.Searching:
                     if (!isRotating360)
                     {
-                        FindGarbageWithRay();
+                        // SearchDirection используем только когда датчики "ничего не видят".
+                        if (ObstacleSensorsSeeNothing())
+                        {
+                            FindGarbageWithRay();
+                        }
                     }
                     if (currentTarget != null)
                     {
@@ -243,10 +247,12 @@ namespace Fuzzy
             }
 
             rotationTimer += Time.deltaTime;
+            bool sensorsClear = ObstacleSensorsSeeNothing();
 
             // Разворот на 360° - только в состоянии Searching
             if (rotationTimer >= rotationInterval &&
-                currentState == RobotState.Searching)
+                currentState == RobotState.Searching &&
+                sensorsClear)
             {
                 // Но сначала проверим, есть ли мусор в поле зрения
                 bool canStartRotation = true;
@@ -300,15 +306,30 @@ namespace Fuzzy
             }
             else if (currentState == RobotState.Searching)
             {
-                // Обычный поисковой патруль
-                searchTimer += Time.deltaTime;
-                if (searchTimer > searchChangeTime)
+                // SearchDirection должен быть активен ТОЛЬКО когда датчики не видят препятствий.
+                // Если датчики что-то видят — SearchDirection не обновляем и не используем как базовый курс.
+                if (sensorsClear)
                 {
-                    searchDirection = Random.insideUnitCircle.normalized;
-                    searchTimer = 0f;
-                    searchChangeTime = Random.Range(1f, 3f);
+                    // Обычный поисковой патруль
+                    searchTimer += Time.deltaTime;
+                    if (searchTimer > searchChangeTime)
+                    {
+                        searchDirection = Random.insideUnitCircle.normalized;
+                        searchTimer = 0f;
+                        searchChangeTime = Random.Range(1f, 3f);
+                    }
                 }
-                Vector2 baseDir = searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right;
+                Vector2 baseDir;
+                if (sensorsClear)
+                {
+                    baseDir = searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right;
+                }
+                else
+                {
+                    // "Другая" логика тут не нужна: просто продолжаем текущий курс и даём Avoidance отработать.
+                    // Главное — не подмешивать SearchDirection, пока датчики видят препятствие.
+                    baseDir = movementDirection.sqrMagnitude > 0.0001f ? movementDirection.normalized : Vector2.right;
+                }
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
                 float frontDist = CheckObstacleDistance(frontSensor);
@@ -416,6 +437,24 @@ namespace Fuzzy
                 Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
             }
             return hit.collider ? hit.distance : float.MaxValue;
+        }
+
+        bool ObstacleSensorsSeeNothing()
+        {
+            // "Датчики ничего не видят" = ни один сенсор не попал лучом в obstacleLayer.
+            // Используем их "наружное" направление (как и в CheckObstacleDistance).
+            return !SensorHitsObstacle(frontSensor) &&
+                   !SensorHitsObstacle(back1Sensor) &&
+                   !SensorHitsObstacle(back2Sensor);
+        }
+
+        bool SensorHitsObstacle(Transform sensor)
+        {
+            if (sensor == null) return false;
+            Vector2 dir = GetSensorWorldDirection(sensor);
+            if (dir.sqrMagnitude < 0.0001f) return false;
+            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
+            return hit.collider != null;
         }
 
         void ApplyRotation()

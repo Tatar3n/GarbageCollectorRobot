@@ -8,15 +8,9 @@ public class Raycast2DExample : MonoBehaviour
     
     void Update()
     {
-        // ВАЖНО: rayDirection хранится в локальных координатах сенсора.
-        // Иначе при повороте робота отладочный луч будет "залипать" в мировом направлении,
-        // создавая впечатление, что рейкасты не поворачиваются.
-        Vector2 worldDir = (Vector2)transform.TransformDirection(rayDirection.normalized);
-        if (worldDir.sqrMagnitude < 0.0001f) worldDir = (Vector2)transform.right;
-
         RaycastHit2D hit = Physics2D.Raycast(
             transform.position,    
-            worldDir,
+            rayDirection,         
             rayLength,
             targetLayers
         );
@@ -34,6 +28,6 @@ public class Raycast2DExample : MonoBehaviour
             }
         }
         
-        Debug.DrawRay(transform.position, worldDir * rayLength, Color.red);
+        Debug.DrawRay(transform.position, rayDirection * rayLength, Color.red);
     }
 }

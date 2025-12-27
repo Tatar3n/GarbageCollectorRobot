@@ -12,31 +12,12 @@ namespace Fuzzy
         public float rotationInterval = 5f;
         public float rotationDuration = 1f;
 
-        [Header("Anti-stuck")]
-        [Tooltip("Disable if it causes jitter/extra maneuvers near walls.")]
-        public bool enableAntiStuck = true;
-        [Tooltip("How often we check if the robot is stuck.")]
-        public float stuckCheckInterval = 0.35f;
-        [Tooltip("If robot moved less than this between checks, we treat it as 'not progressing'.")]
-        public float stuckMinMove = 0.03f;
-        [Tooltip("Time of no-progress before escape maneuver triggers.")]
-        public float stuckTimeToTrigger = 1.1f;
-        [Tooltip("Duration of escape maneuver once triggered.")]
-        public float escapeDuration = 0.8f;
-        [Tooltip("How much to bias escape maneuver backwards from desired direction.")]
-        [Range(0f, 1f)]
-        public float escapeBackoff = 0.55f;
-
         public LayerMask obstacleLayer;
         public LayerMask garbageLayer;
 
         private readonly FuzzyFunction fuzzyFunction = new FuzzyFunction();
 
         public Transform frontSensor;
-        // Optional sensors (in SampleScene these exist as frontLeft/frontRight).
-        // Used as left/right "edge" ray origins for obstacle avoidance.
-        public Transform frontLeftSensor;
-        public Transform frontRightSensor;
         public Transform back1Sensor;
         public Transform back2Sensor;
 
@@ -59,38 +40,24 @@ namespace Fuzzy
         private Vector2 desiredVelocity = Vector2.zero;
         private float targetSpeed = 0f;
         private float lastGabaritMinDist = float.MaxValue;
-        private Vector2 lastBaseDirection = Vector2.right;
-
-        [Header("Avoidance (stop + turn)")]
-        [Tooltip("If obstacle is closer than this fraction of obstacleAvoidDistance, stop and turn in place.")]
-        [Range(0.1f, 0.95f)]
-        public float stopTurnDistanceFactor = 0.45f;
-        [Tooltip("How long to keep moving along the chosen avoidance direction (seconds).")]
-        public float avoidDirectionHoldTime = 0.6f;
-
-        private float avoidDirectionTimer = 0f;
-        private Vector2 avoidDirection = Vector2.zero;
-
-        // Stuck / escape
-        private float stuckCheckTimer = 0f;
-        private float stuckTimer = 0f;
-        private Vector2 lastStuckPos = Vector2.zero;
-        private bool isEscaping = false;
-        private float escapeTimer = 0f;
-        private Vector2 escapeDirection = Vector2.zero;
 
         private enum RobotState { Searching, GoingToGarbage, GoingToTrashbin, Unloading }
         private RobotState currentState = RobotState.Searching;
 
-        void Awake()
+        void Start()
         {
-            // Важно делать это в Awake, чтобы никакие другие скрипты (например Move)
-            // не успели начать управлять Rigidbody2D в первый физический тик.
             inventory = GetComponent<Inventory>();
+            if (inventory == null)
+            {
+                Debug.LogError("Inventory component not found!");
+                enabled = false;
+                return;
+            }
 
             rb = GetComponent<Rigidbody2D>();
             if (rb != null)
             {
+                // Управление движением берём на себя: без гравитации, без вращения, движение через MovePosition в FixedUpdate.
                 rb.gravityScale = 0f;
                 rb.constraints = RigidbodyConstraints2D.FreezeRotation;
             }
@@ -101,38 +68,17 @@ namespace Fuzzy
             {
                 manualMove.enabled = false;
             }
-        }
-
-        void Start()
-        {
-            if (inventory == null)
-            {
-                Debug.LogError("Inventory component not found!");
-                enabled = false;
-                return;
-            }
 
             FindAllTrashbins();
             searchDirection = Random.insideUnitCircle.normalized;
             rotationStartDirection = searchDirection;
-
-            lastStuckPos = transform.position;
             targetSpeed = speed;
 
             // In the current scene, sensor GameObjects have an extra Raycast debug script attached.
             // It duplicates rays and makes it look like there are "many sensors".
-            DisableAllSensorDebug();
-        }
-
-        void DisableAllSensorDebug()
-        {
-            // Raycast2DExample is only for visual debugging; it duplicates rays and confuses tuning.
-            // Disable it everywhere under the robot (all sensor GameObjects are children).
-            Raycast2DExample[] dbgs = GetComponentsInChildren<Raycast2DExample>(true);
-            for (int i = 0; i < dbgs.Length; i++)
-            {
-                dbgs[i].enabled = false;
-            }
+            DisableSensorDebug(frontSensor);
+            DisableSensorDebug(back1Sensor);
+            DisableSensorDebug(back2Sensor);
         }
 
         void Update()
@@ -145,19 +91,14 @@ namespace Fuzzy
             }
 
             SelectTargetBasedOnState();
+            CalculateMovement();
+            ApplyRotation();
             if (showDebug) DebugInfo();
         }
 
         void FixedUpdate()
         {
             // Движение выполняем в физическом тике, чтобы корректно работали коллайдеры/стены.
-            if (enableAntiStuck)
-            {
-                UpdateStuckDetection(Time.fixedDeltaTime);
-            }
-            CalculateMovement(Time.fixedDeltaTime);
-            ApplyRotation();
-
             Vector2 moveDirForPhysics = movementDirection;
 
             // Если выполняется разворот на 360°, останавливаем движение
@@ -292,25 +233,16 @@ namespace Fuzzy
             }
         }
 
-        void CalculateMovement(float dt)
+        void CalculateMovement()
         {
             if (isRotating360)
             {
-                Handle360Rotation(dt);
+                Handle360Rotation();
                 movementDirection = Vector2.zero;
                 return;
             }
 
-            rotationTimer += dt;
-            if (avoidDirectionTimer > 0f)
-            {
-                avoidDirectionTimer -= dt;
-                if (avoidDirectionTimer <= 0f)
-                {
-                    avoidDirection = Vector2.zero;
-                    avoidDirectionTimer = 0f;
-                }
-            }
+            rotationTimer += Time.deltaTime;
 
             // Разворот на 360° - только в состоянии Searching
             if (rotationTimer >= rotationInterval &&
@@ -356,48 +288,11 @@ namespace Fuzzy
                     return;
                 }
 
-                // Если застряли — делаем короткий "escape" манёвр
-                if (isEscaping)
-                {
-                    movementDirection = escapeDirection;
-                    isAvoiding = true;
-                    return;
-                }
-
-                Vector2 baseDir = (avoidDirectionTimer > 0f && avoidDirection.sqrMagnitude > 0.0001f)
-                    ? avoidDirection.normalized
-                    : toTarget.normalized;
-                lastBaseDirection = baseDir;
-
-                // Если впереди очень близко препятствие — полностью останавливаемся и разворачиваемся на месте,
-                // а затем коротко едем по выбранной стороне, чтобы "отлипнуть" от стены.
-                float stopDist = obstacleAvoidDistance * stopTurnDistanceFactor;
-                RaycastHit2D frontHit = RaycastObstacle(frontSensor ? frontSensor.position : (Vector2)transform.position, baseDir);
-                float dFront = frontHit.collider ? frontHit.distance : float.MaxValue;
-                if (frontHit.collider != null && dFront <= stopDist)
-                {
-                    Transform leftS = frontLeftSensor ? frontLeftSensor : back2Sensor;
-                    Transform rightS = frontRightSensor ? frontRightSensor : back1Sensor;
-                    float dLeft = leftS ? CheckObstacleDistance(leftS, baseDir) : float.MaxValue;
-                    float dRight = rightS ? CheckObstacleDistance(rightS, baseDir) : float.MaxValue;
-
-                    Vector2 right = new Vector2(baseDir.y, -baseDir.x).normalized; // CW
-                    Vector2 turnDir = (dRight >= dLeft) ? right : -right;
-
-                    isAvoiding = true;
-                    rotationTimer = 0f;
-                    avoidDirection = turnDir;
-                    avoidDirectionTimer = avoidDirectionHoldTime;
-                    movementDirection = turnDir; // для поворота "головы" на месте
-                    targetSpeed = 0f;
-                    speed = 0f;
-                    return;
-                }
-
+                Vector2 baseDir = toTarget.normalized;
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ (по переднему датчику)
-                float frontDist = CheckObstacleDistance(frontSensor, baseDir);
+                float frontDist = CheckObstacleDistance(frontSensor);
                 float speedDist = Mathf.Min(frontDist, lastGabaritMinDist);
                 targetSpeed = fuzzyFunction.Sentr_mass(speedDist);
                 speed = Mathf.Max(0f, targetSpeed);
@@ -406,44 +301,17 @@ namespace Fuzzy
             else if (currentState == RobotState.Searching)
             {
                 // Обычный поисковой патруль
-                searchTimer += dt;
+                searchTimer += Time.deltaTime;
                 if (searchTimer > searchChangeTime)
                 {
                     searchDirection = Random.insideUnitCircle.normalized;
                     searchTimer = 0f;
                     searchChangeTime = Random.Range(1f, 3f);
                 }
-                Vector2 baseDir = (avoidDirectionTimer > 0f && avoidDirection.sqrMagnitude > 0.0001f)
-                    ? avoidDirection.normalized
-                    : (searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right);
-                lastBaseDirection = baseDir;
-
-                float stopDist = obstacleAvoidDistance * stopTurnDistanceFactor;
-                RaycastHit2D frontHit = RaycastObstacle(frontSensor ? frontSensor.position : (Vector2)transform.position, baseDir);
-                float dFront = frontHit.collider ? frontHit.distance : float.MaxValue;
-                if (frontHit.collider != null && dFront <= stopDist)
-                {
-                    Transform leftS = frontLeftSensor ? frontLeftSensor : back2Sensor;
-                    Transform rightS = frontRightSensor ? frontRightSensor : back1Sensor;
-                    float dLeft = leftS ? CheckObstacleDistance(leftS, baseDir) : float.MaxValue;
-                    float dRight = rightS ? CheckObstacleDistance(rightS, baseDir) : float.MaxValue;
-
-                    Vector2 right = new Vector2(baseDir.y, -baseDir.x).normalized; // CW
-                    Vector2 turnDir = (dRight >= dLeft) ? right : -right;
-
-                    isAvoiding = true;
-                    rotationTimer = 0f;
-                    avoidDirection = turnDir;
-                    avoidDirectionTimer = avoidDirectionHoldTime;
-                    movementDirection = turnDir;
-                    targetSpeed = 0f;
-                    speed = 0f;
-                    return;
-                }
-
+                Vector2 baseDir = searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right;
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
-                float frontDist = CheckObstacleDistance(frontSensor, baseDir);
+                float frontDist = CheckObstacleDistance(frontSensor);
                 float speedDist = Mathf.Min(frontDist, lastGabaritMinDist);
                 targetSpeed = fuzzyFunction.Sentr_mass(speedDist);
                 speed = Mathf.Max(0f, targetSpeed);
@@ -452,14 +320,6 @@ namespace Fuzzy
             else if (currentState == RobotState.Unloading)
             {
                 movementDirection = Vector2.zero;
-                return;
-            }
-
-            if (isEscaping)
-            {
-                movementDirection = escapeDirection;
-                isAvoiding = true;
-                rotationTimer = 0f;
                 return;
             }
         }
@@ -476,21 +336,16 @@ namespace Fuzzy
         {
             if (baseDir.sqrMagnitude < 0.0001f) return Vector2.zero;
 
-            // Сенсоры должны задавать точки на краях робота, а направление луча — быть по курсу движения (baseDir).
-            // Иначе при движении "в лоб" робот может тормозить, но не получать команду на поворот вовремя.
-            Transform leftS = frontLeftSensor ? frontLeftSensor : back2Sensor;
-            Transform rightS = frontRightSensor ? frontRightSensor : back1Sensor;
+            // Берём два габаритных датчика (левый/правый). В Sentr_mass_rotate передаём расстояние
+            // с датчика, который ближе к препятствию.
+            float dRight = back1Sensor ? CheckObstacleDistance(back1Sensor) : float.MaxValue;
+            float dLeft = back2Sensor ? CheckObstacleDistance(back2Sensor) : float.MaxValue;
 
-            RaycastHit2D frontHit = RaycastObstacle(frontSensor ? frontSensor.position : (Vector2)transform.position, baseDir);
-            float dFront = frontHit.collider ? frontHit.distance : float.MaxValue;
-            float dLeft = leftS ? CheckObstacleDistance(leftS, baseDir) : float.MaxValue;
-            float dRight = rightS ? CheckObstacleDistance(rightS, baseDir) : float.MaxValue;
+            float dMin = Mathf.Min(dLeft, dRight);
+            bool isLeft = dLeft <= dRight;
 
-            float dMin = Mathf.Min(dFront, dLeft, dRight);
-            bool obstacleOnLeft = dLeft <= dRight;
-
-            float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, obstacleOnLeft);
-            lastGabaritMinDist = Mathf.Min(dLeft, dRight);
+            float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, isLeft);
+            lastGabaritMinDist = dMin;
             if (Mathf.Abs(turnAngle) <= 0.001f)
             {
                 isAvoiding = false;
@@ -529,17 +384,15 @@ namespace Fuzzy
             Debug.Log("Starting 360-degree rotation on spot");
         }
 
-        void Handle360Rotation(float dt)
+        void Handle360Rotation()
         {
-            currentRotationTime += dt;
+            currentRotationTime += Time.deltaTime;
 
             if (currentRotationTime >= rotationDuration)
             {
                 isRotating360 = false;
                 rotationTimer = 0f;
-                // 360° * rotationStartDirection возвращает тот же вектор; после сканирования
-                // логичнее сменить направление поиска, чтобы не "ехать в стену" снова.
-                searchDirection = Random.insideUnitCircle.normalized;
+                searchDirection = Quaternion.Euler(0, 0, 360f) * rotationStartDirection;
                 Debug.Log("360-degree rotation on spot completed");
                 return;
             }
@@ -558,27 +411,11 @@ namespace Fuzzy
             if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
 
             RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
+            if (showDebug)
+            {
+                Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
+            }
             return hit.collider ? hit.distance : float.MaxValue;
-        }
-
-        float CheckObstacleDistance(Transform sensor, Vector2 castDirection)
-        {
-            if (sensor == null) return float.MaxValue;
-            Vector2 dir = castDirection.sqrMagnitude > 0.0001f ? castDirection : lastBaseDirection;
-            if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
-            dir = dir.normalized;
-
-            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
-            return hit.collider ? hit.distance : float.MaxValue;
-        }
-
-        RaycastHit2D RaycastObstacle(Vector2 origin, Vector2 castDirection)
-        {
-            Vector2 dir = castDirection.sqrMagnitude > 0.0001f ? castDirection : lastBaseDirection;
-            if (dir.sqrMagnitude < 0.0001f) dir = Vector2.right;
-            dir = dir.normalized;
-            float dist = obstacleAvoidDistance * 2f;
-            return Physics2D.Raycast(origin, dir, dist, obstacleLayer);
         }
 
         void ApplyRotation()
@@ -594,134 +431,6 @@ namespace Fuzzy
                 float angle = Mathf.Atan2(movementDirection.y, movementDirection.x) * Mathf.Rad2Deg;
                 transform.rotation = Quaternion.Euler(0, 0, angle - 90f);
             }
-        }
-
-        void UpdateStuckDetection(float dt)
-        {
-            // Пока мы сознательно выполняем объезд/разворот у препятствия — не включаем анти-застревание.
-            // Иначе запускается Escape, появляются дополнительные лучи/дёрганье и кажется, что "включилась другая логика".
-            if (isAvoiding || avoidDirectionTimer > 0f)
-            {
-                ResetStuck();
-                return;
-            }
-
-            // Не проверяем застревание во время разворота на 360°
-            if (isRotating360)
-            {
-                ResetStuck();
-                return;
-            }
-
-            if (currentState == RobotState.Unloading)
-            {
-                ResetStuck();
-                return;
-            }
-
-            // Если нечётная логика "просит остановиться" — обычно это не застревание.
-            // Но если рядом реально препятствие/граница, робот может "залипнуть" в ноль скорости и не сделать escape.
-            if (speed < 0.15f || targetSpeed < 0.15f)
-            {
-                if (!IsObstacleVeryClose())
-                {
-                    stuckTimer = 0f;
-                    return;
-                }
-            }
-
-            // Escape таймер
-            if (isEscaping)
-            {
-                escapeTimer -= dt;
-                if (escapeTimer <= 0f)
-                {
-                    isEscaping = false;
-                    escapeDirection = Vector2.zero;
-                }
-            }
-
-            // Проверка прогресса раз в интервал
-            stuckCheckTimer += dt;
-            if (stuckCheckTimer < stuckCheckInterval) return;
-            stuckCheckTimer = 0f;
-
-            float moved = Vector2.Distance(transform.position, lastStuckPos);
-            lastStuckPos = transform.position;
-
-            // Если мы вообще не пытаемся ехать — не считаем застреванием.
-            if (desiredVelocity.magnitude < 0.2f && movementDirection.magnitude < 0.2f)
-            {
-                stuckTimer = 0f;
-                return;
-            }
-
-            if (moved < stuckMinMove)
-            {
-                stuckTimer += stuckCheckInterval;
-            }
-            else
-            {
-                stuckTimer = 0f;
-            }
-
-            if (!isEscaping && stuckTimer >= stuckTimeToTrigger)
-            {
-                // Escape запускаем только если реально есть препятствие рядом (иначе можно "сорваться" на ровном месте).
-                float minDist = float.MaxValue;
-                if (frontSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontSensor));
-                if (back1Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back1Sensor));
-                if (back2Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back2Sensor));
-
-                bool nearObstacle = minDist < obstacleAvoidDistance * 1.1f;
-                if (nearObstacle)
-                {
-                    StartEscapeManeuver();
-                }
-                else
-                {
-                    // Нет препятствий рядом — сбрасываем таймер, чтобы не дёргаться.
-                    stuckTimer = 0f;
-                }
-            }
-        }
-
-        bool IsObstacleVeryClose()
-        {
-            float minDist = float.MaxValue;
-            if (frontSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontSensor));
-            if (back1Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back1Sensor));
-            if (back2Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back2Sensor));
-
-            return minDist < obstacleAvoidDistance * 0.8f;
-        }
-
-        void StartEscapeManeuver()
-        {
-            stuckTimer = 0f;
-            isEscaping = true;
-            escapeTimer = escapeDuration;
-
-            Vector2 baseDir = movementDirection.sqrMagnitude > 0.0001f ? movementDirection.normalized : searchDirection.normalized;
-            if (baseDir.sqrMagnitude < 0.0001f) baseDir = Vector2.right;
-
-            int avoidSide = Random.value < 0.5f ? -1 : 1;
-            Vector2 side = Vector2.Perpendicular(baseDir).normalized * avoidSide;
-            Vector2 back = (-baseDir) * escapeBackoff;
-            Vector2 combined = side + back;
-
-            if (combined.sqrMagnitude < 0.0001f) combined = side;
-            escapeDirection = combined.normalized;
-        }
-
-        void ResetStuck()
-        {
-            stuckTimer = 0f;
-            stuckCheckTimer = 0f;
-            isEscaping = false;
-            escapeTimer = 0f;
-            escapeDirection = Vector2.zero;
-            lastStuckPos = transform.position;
         }
 
         void DebugInfo()
@@ -740,7 +449,7 @@ namespace Fuzzy
 
             string rotationStr = isRotating360 ? $"Rotating 360° ({(currentRotationTime / rotationDuration) * 100:F0}%)" : "Not rotating";
 
-            string info = $"State: {stateStr} | Garbage: {currentGarbageType} | Target: {targetStr} | Avoiding: {isAvoiding} | Escaping: {isEscaping} | {rotationStr} | Speed: {speed:F2}";
+            string info = $"State: {stateStr} | Garbage: {currentGarbageType} | Target: {targetStr} | Avoiding: {isAvoiding} | {rotationStr} | Speed: {speed:F2}";
             Debug.Log(info);
         }
 

@@ -9,12 +9,12 @@ namespace Fuzzy
         public Transform frontSensor;
         public Transform back1Sensor;
         public Transform back2Sensor;
-        
+
         [Header("Movement Settings")]
         public float speed = 3f;
         public float detectionRadius = 5f;
         public float obstacleAvoidDistance = 1.5f;
-        
+
         [Header("Smoothing")]
         public float directionSmoothing = 10f;
         public float speedSmoothing = 8f;
@@ -26,7 +26,6 @@ namespace Fuzzy
         private readonly FuzzyFunction fuzzyFunction = new FuzzyFunction();
         private Rigidbody2D rb;
         private Vector2 movementDirection = Vector2.zero;
-
         private Vector2 smoothedMoveDirection = Vector2.zero;
         private float targetSpeed = 0f;
         private Vector2 desiredVelocity = Vector2.zero;
@@ -47,21 +46,19 @@ namespace Fuzzy
                 manualMove.enabled = false;
             }
 
-
             smoothedMoveDirection = Vector2.right;
             targetSpeed = speed;
         }
 
         void Update()
         {
-
             CalculateMovement();
+            SmoothMovementAndSpeed();
             ApplyRotation();
         }
 
         void FixedUpdate()
         {
-
             Vector2 moveDirForPhysics = smoothedMoveDirection;
 
             if (moveDirForPhysics.magnitude > 0.1f)
@@ -92,10 +89,11 @@ namespace Fuzzy
             // Нечёткая логика для поворота (по боковым датчикам)
             float dRight = back1Sensor ? CheckObstacleDistance(back1Sensor) : float.MaxValue;
             float dLeft = back2Sensor ? CheckObstacleDistance(back2Sensor) : float.MaxValue;
-            float dMin =0.0f;
-            bool isLeft =true;
+            float dMin = 0.0f;
+            bool isLeft = true;
 
-            if (Mathf.Abs(dLeft - dRight)>0.5f){
+            if (Mathf.Abs(dLeft - dRight) > 0.5f)
+            {
                 dMin = Mathf.Min(dLeft, dRight);
                 isLeft = dLeft <= dRight;
             }
@@ -111,7 +109,7 @@ namespace Fuzzy
 
             Vector2 forward = (smoothedMoveDirection.sqrMagnitude > 0.0001f ? smoothedMoveDirection : Vector2.right).normalized;
             Vector2 turned = (Vector2)(Quaternion.Euler(0f, 0f, turnAngle) * forward);
-            
+
             if (turned.sqrMagnitude > 0.0001f)
             {
                 movementDirection = turned.normalized;
@@ -157,7 +155,6 @@ namespace Fuzzy
             if (fromCenter.sqrMagnitude < 0.0001f) return Vector2.zero;
             return fromCenter.normalized;
         }
-
 
         float CheckObstacleDistance(Transform sensor)
         {

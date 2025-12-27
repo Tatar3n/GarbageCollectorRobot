@@ -23,6 +23,24 @@ namespace Fuzzy
         public bool seekTrashBinWhenCarrying = true;
         public float trashBinRefreshInterval = 0.75f;
 
+        [Header("Trash Seeking (поиск мусора)")]
+        public bool enableTrashSeeking = true;
+        [Tooltip("Длина переднего луча для поиска мусора.")]
+        public float trashDetectDistance = 6f;
+        [Tooltip("Через сколько секунд без видимости цель мусора забывается.")]
+        public float trashMemorySeconds = 1.25f;
+        [Tooltip("Если цель ушла слишком далеко, цель сбрасывается.")]
+        public float trashMaxChaseDistance = 10f;
+        public bool showTrashDebug = true;
+
+        [Header("Scan (поворот на месте раз в N секунд)")]
+        public bool enableScan = true;
+        public float scanIntervalSeconds = 2f;
+        [Tooltip("Сколько времени крутиться на месте при скане.")]
+        public float scanDurationSeconds = 0.8f;
+        [Tooltip("Скорость поворота в градусах/сек.")]
+        public float scanRotationSpeedDegPerSec = 540f;
+
         [Header("Smoothing")]
         public float directionSmoothing = 10f;
         public float speedSmoothing = 8f;
@@ -47,6 +65,13 @@ namespace Fuzzy
         private bool hasWanderPoint;
         private float nextWanderPickTime;
 
+        // Trash targetting / scanning
+        private KeepGarbage currentTrashTarget;
+        private float lastTrashSeenTime;
+        private float nextScanTime;
+        private bool isScanning;
+        private float scanEndTime;
+
         void Start()
         {
             rb = GetComponent<Rigidbody2D>();
@@ -67,10 +92,20 @@ namespace Fuzzy
             smoothedMoveDirection = Vector2.right;
             targetSpeed = speed;
             PickNewWanderPoint();
+
+            nextScanTime = Time.time + Mathf.Max(0.1f, scanIntervalSeconds);
         }
 
         void Update()
         {
+            UpdateTrashSeekingAndScanState();
+
+            if (isScanning)
+            {
+                UpdateScanRotationAndDetectTrash();
+                return;
+            }
+
             CalculateMovement();
             SmoothMovementAndSpeed();
             ApplyRotation();
@@ -78,6 +113,15 @@ namespace Fuzzy
 
         void FixedUpdate()
         {
+            if (isScanning)
+            {
+                if (rb != null)
+                {
+                    rb.velocity = Vector2.MoveTowards(rb.velocity, Vector2.zero, maxAcceleration * Time.fixedDeltaTime);
+                }
+                return;
+            }
+
             Vector2 moveDirForPhysics = smoothedMoveDirection;
 
             if (moveDirForPhysics.magnitude > 0.1f)
@@ -215,6 +259,13 @@ namespace Fuzzy
                 carried = inventory.getCell();
             }
 
+            // Если НЕ несём мусор и у нас есть цель (мусор) -> идём к нему.
+            if (enableTrashSeeking && carried == Types.GType.None && currentTrashTarget != null)
+            {
+                Vector2 toTrash = (Vector2)currentTrashTarget.transform.position - (Vector2)transform.position;
+                return toTrash;
+            }
+
             // If carrying garbage -> go to matching trash bin.
             if (seekTrashBinWhenCarrying && carried != Types.GType.None)
             {
@@ -291,6 +342,164 @@ namespace Fuzzy
             }
 
             return best;
+        }
+
+        private void UpdateTrashSeekingAndScanState()
+        {
+            if (!enableTrashSeeking && !enableScan)
+            {
+                return;
+            }
+
+            Types.GType carried = Types.GType.None;
+            if (inventory != null)
+            {
+                carried = inventory.getCell();
+            }
+
+            // Пока несём мусор — не ищем новый.
+            if (carried != Types.GType.None)
+            {
+                currentTrashTarget = null;
+                isScanning = false;
+                return;
+            }
+
+            // Чистим "мертвую" цель.
+            if (currentTrashTarget == null)
+            {
+                // nothing
+            }
+            else
+            {
+                float dist = Vector2.Distance(transform.position, currentTrashTarget.transform.position);
+                if (!currentTrashTarget.gameObject.activeInHierarchy || dist > Mathf.Max(0.1f, trashMaxChaseDistance))
+                {
+                    currentTrashTarget = null;
+                }
+            }
+
+            // Передний луч: если видим мусор -> цель.
+            KeepGarbage seen = TryGetTrashInFront();
+            if (seen != null)
+            {
+                currentTrashTarget = seen;
+                lastTrashSeenTime = Time.time;
+                isScanning = false;
+                return;
+            }
+
+            // Если цель была, но давно не видим — забываем.
+            if (currentTrashTarget != null && (Time.time - lastTrashSeenTime) > Mathf.Max(0.05f, trashMemorySeconds))
+            {
+                currentTrashTarget = null;
+            }
+
+            // Если нет цели — раз в 2 секунды делаем поворот-скан.
+            if (enableScan && currentTrashTarget == null && !isScanning && Time.time >= nextScanTime)
+            {
+                StartScan();
+            }
+        }
+
+        private void StartScan()
+        {
+            isScanning = true;
+            scanEndTime = Time.time + Mathf.Max(0.05f, scanDurationSeconds);
+            nextScanTime = Time.time + Mathf.Max(0.1f, scanIntervalSeconds);
+        }
+
+        private void UpdateScanRotationAndDetectTrash()
+        {
+            float dt = Time.deltaTime;
+            float dz = scanRotationSpeedDegPerSec * dt;
+            transform.rotation = Quaternion.Euler(0f, 0f, transform.eulerAngles.z + dz);
+
+            KeepGarbage seen = TryGetTrashInFront();
+            if (seen != null)
+            {
+                currentTrashTarget = seen;
+                lastTrashSeenTime = Time.time;
+                isScanning = false;
+                return;
+            }
+
+            if (Time.time >= scanEndTime)
+            {
+                isScanning = false;
+            }
+        }
+
+        private KeepGarbage TryGetTrashInFront()
+        {
+            Vector2 origin = frontSensor != null ? (Vector2)frontSensor.position : (Vector2)transform.position;
+            Vector2 dir = (Vector2)transform.up;
+            if (dir.sqrMagnitude < 0.0001f) return null;
+
+            ContactFilter2D filter = new ContactFilter2D
+            {
+                useTriggers = true,
+                useLayerMask = false
+            };
+
+            RaycastHit2D[] hits = new RaycastHit2D[16];
+            int count = Physics2D.Raycast(origin, dir, filter, hits, Mathf.Max(0.1f, trashDetectDistance));
+            if (count <= 0)
+            {
+                if (showTrashDebug)
+                {
+                    Debug.DrawRay(origin, dir * trashDetectDistance, new Color(1f, 0.9f, 0.2f, 0.6f));
+                }
+                return null;
+            }
+
+            // Находим ближайший мусор, который НЕ закрыт препятствием.
+            // (Если стена ближе — мусор не считаем "видимым".)
+            float nearestObstacle = float.PositiveInfinity;
+            KeepGarbage nearestTrash = null;
+            float nearestTrashDist = float.PositiveInfinity;
+
+            for (int i = 0; i < count; i++)
+            {
+                Collider2D col = hits[i].collider;
+                if (col == null) continue;
+                if (col.transform == transform || col.transform.IsChildOf(transform)) continue;
+
+                float d = hits[i].distance;
+
+                bool isObstacle = ((1 << col.gameObject.layer) & obstacleLayer.value) != 0;
+                if (isObstacle)
+                {
+                    if (d < nearestObstacle) nearestObstacle = d;
+                    continue;
+                }
+
+                if (!col.CompareTag("garbage")) continue;
+
+                if (col.TryGetComponent<KeepGarbage>(out var garbage))
+                {
+                    if (d < nearestTrashDist)
+                    {
+                        nearestTrashDist = d;
+                        nearestTrash = garbage;
+                    }
+                }
+            }
+
+            if (nearestTrash != null && nearestTrashDist < nearestObstacle)
+            {
+                if (showTrashDebug)
+                {
+                    Debug.DrawRay(origin, dir * nearestTrashDist, Color.yellow);
+                }
+                return nearestTrash;
+            }
+
+            if (showTrashDebug)
+            {
+                Debug.DrawRay(origin, dir * trashDetectDistance, new Color(1f, 0.5f, 0.2f, 0.6f));
+            }
+            return null;
         }
     }
 }

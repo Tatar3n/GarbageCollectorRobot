@@ -13,6 +13,8 @@ namespace Fuzzy
         public float rotationDuration = 1f;
 
         [Header("Anti-stuck")]
+        [Tooltip("Disable if it causes jitter/extra maneuvers near walls.")]
+        public bool enableAntiStuck = true;
         [Tooltip("How often we check if the robot is stuck.")]
         public float stuckCheckInterval = 0.35f;
         [Tooltip("If robot moved less than this between checks, we treat it as 'not progressing'.")]
@@ -149,7 +151,10 @@ namespace Fuzzy
         void FixedUpdate()
         {
             // Движение выполняем в физическом тике, чтобы корректно работали коллайдеры/стены.
-            UpdateStuckDetection(Time.fixedDeltaTime);
+            if (enableAntiStuck)
+            {
+                UpdateStuckDetection(Time.fixedDeltaTime);
+            }
             CalculateMovement(Time.fixedDeltaTime);
             ApplyRotation();
 

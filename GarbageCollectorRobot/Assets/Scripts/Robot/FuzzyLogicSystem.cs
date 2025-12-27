@@ -109,9 +109,18 @@ namespace Fuzzy
 
             // In the current scene, sensor GameObjects have an extra Raycast debug script attached.
             // It duplicates rays and makes it look like there are "many sensors".
-            DisableSensorDebug(frontSensor);
-            DisableSensorDebug(back1Sensor);
-            DisableSensorDebug(back2Sensor);
+            DisableAllSensorDebug();
+        }
+
+        void DisableAllSensorDebug()
+        {
+            // Raycast2DExample is only for visual debugging; it duplicates rays and confuses tuning.
+            // Disable it everywhere under the robot (all sensor GameObjects are children).
+            Raycast2DExample[] dbgs = GetComponentsInChildren<Raycast2DExample>(true);
+            for (int i = 0; i < dbgs.Length; i++)
+            {
+                dbgs[i].enabled = false;
+            }
         }
 
         void Update()

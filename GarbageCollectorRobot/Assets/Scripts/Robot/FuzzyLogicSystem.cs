@@ -15,7 +15,7 @@ namespace Fuzzy
         public float detectionRadius = 5f;
         public float obstacleAvoidDistance = 1.5f;
 
-        [Header("Goal / Search (не влияет на fuzzy-формулы)")]
+        [Header("Goal / Search")]
         public bool enableGoalSeeking = true;
         public float wanderRadius = 2.5f;
         public float wanderPointReachDistance = 0.25f;
@@ -23,22 +23,16 @@ namespace Fuzzy
         public bool seekTrashBinWhenCarrying = true;
         public float trashBinRefreshInterval = 0.75f;
 
-        [Header("Trash Seeking (поиск мусора)")]
+        [Header("Trash Seeking")]
         public bool enableTrashSeeking = true;
-        [Tooltip("Длина переднего луча для поиска мусора.")]
         public float trashDetectDistance = 6f;
-        [Tooltip("Через сколько секунд без видимости цель мусора забывается.")]
         public float trashMemorySeconds = 1.25f;
-        [Tooltip("Если цель ушла слишком далеко, цель сбрасывается.")]
         public float trashMaxChaseDistance = 10f;
         public bool showTrashDebug = true;
 
-        [Header("Scan (поворот на месте раз в N секунд)")]
         public bool enableScan = true;
         public float scanIntervalSeconds = 2f;
-        [Tooltip("Сколько времени крутиться на месте при скане.")]
         public float scanDurationSeconds = 0.8f;
-        [Tooltip("Скорость поворота в градусах/сек.")]
         public float scanRotationSpeedDegPerSec = 540f;
 
         [Header("Smoothing")]
@@ -56,7 +50,6 @@ namespace Fuzzy
         private float targetSpeed = 0f;
         private Vector2 desiredVelocity = Vector2.zero;
 
-        // High-level movement target (search/delivery). Fuzzy logic below stays intact.
         private Inventory inventory;
         private Types.GType lastGarbageType = Types.GType.None;
         private TrashBin cachedTargetBin;
@@ -65,7 +58,6 @@ namespace Fuzzy
         private bool hasWanderPoint;
         private float nextWanderPickTime;
 
-        // Trash targetting / scanning
         private KeepGarbage currentTrashTarget;
         private float lastTrashSeenTime;
         private float nextScanTime;
@@ -81,7 +73,6 @@ namespace Fuzzy
                 rb.constraints = RigidbodyConstraints2D.FreezeRotation;
             }
 
-            // Отключаем ручное управление, чтобы не конфликтовало с ИИ-движением.
             Move manualMove = GetComponent<Move>();
             if (manualMove != null)
             {
@@ -147,13 +138,11 @@ namespace Fuzzy
         {
             Vector2 baseDesiredDirection = GetBaseDesiredDirection();
 
-            // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ (по переднему датчику)
             float frontDist = CheckObstacleDistance(frontSensor);
             float leftDist = CheckObstacleDistance(back1Sensor);
             float rightDist = CheckObstacleDistance(back2Sensor);
             targetSpeed = fuzzyFunction.Sentr_mass(Mathf.Min(frontDist, leftDist, rightDist));
 
-            // Нечёткая логика для поворота (по боковым датчикам)
             float dRight = back1Sensor ? CheckObstacleDistance(back1Sensor) : float.MaxValue;
             float dLeft = back2Sensor ? CheckObstacleDistance(back2Sensor) : float.MaxValue;
             float dMin = 0.0f;
@@ -171,6 +160,10 @@ namespace Fuzzy
             }
 
             float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, isLeft, targetSpeed);
+            if (turnAngle > -1001 && turnAngle < -999)
+            {
+                transform.rotation = Quaternion.Euler(0, 0, 90f);
+            }
             Debug.Log(dMin);
             Debug.Log(turnAngle);
 
@@ -252,21 +245,18 @@ namespace Fuzzy
                 return Vector2.zero;
             }
 
-            // If Inventory isn't present – fallback to wander.
             Types.GType carried = Types.GType.None;
             if (inventory != null)
             {
                 carried = inventory.getCell();
             }
 
-            // Если НЕ несём мусор и у нас есть цель (мусор) -> идём к нему.
             if (enableTrashSeeking && carried == Types.GType.None && currentTrashTarget != null)
             {
                 Vector2 toTrash = (Vector2)currentTrashTarget.transform.position - (Vector2)transform.position;
                 return toTrash;
             }
 
-            // If carrying garbage -> go to matching trash bin.
             if (seekTrashBinWhenCarrying && carried != Types.GType.None)
             {
                 if (carried != lastGarbageType)
@@ -294,7 +284,6 @@ namespace Fuzzy
                 cachedTargetBin = null;
             }
 
-            // Search mode: wander to random points near the robot.
             if (!hasWanderPoint || Time.time >= nextWanderPickTime)
             {
                 PickNewWanderPoint();
@@ -357,7 +346,6 @@ namespace Fuzzy
                 carried = inventory.getCell();
             }
 
-            // Пока несём мусор — не ищем новый.
             if (carried != Types.GType.None)
             {
                 currentTrashTarget = null;
@@ -365,10 +353,8 @@ namespace Fuzzy
                 return;
             }
 
-            // Чистим "мертвую" цель.
             if (currentTrashTarget == null)
             {
-                // nothing
             }
             else
             {
@@ -379,7 +365,6 @@ namespace Fuzzy
                 }
             }
 
-            // Передний луч: если видим мусор -> цель.
             KeepGarbage seen = TryGetTrashInFront();
             if (seen != null)
             {
@@ -389,17 +374,11 @@ namespace Fuzzy
                 return;
             }
 
-            // Если цель была, но давно не видим — забываем.
             if (currentTrashTarget != null && (Time.time - lastTrashSeenTime) > Mathf.Max(0.05f, trashMemorySeconds))
-            {
                 currentTrashTarget = null;
-            }
 
-            // Если нет цели — раз в 2 секунды делаем поворот-скан.
             if (enableScan && currentTrashTarget == null && !isScanning && Time.time >= nextScanTime)
-            {
                 StartScan();
-            }
         }
 
         private void StartScan()
@@ -425,9 +404,7 @@ namespace Fuzzy
             }
 
             if (Time.time >= scanEndTime)
-            {
                 isScanning = false;
-            }
         }
 
         private KeepGarbage TryGetTrashInFront()
@@ -453,8 +430,6 @@ namespace Fuzzy
                 return null;
             }
 
-            // Находим ближайший мусор, который НЕ закрыт препятствием.
-            // (Если стена ближе — мусор не считаем "видимым".)
             float nearestObstacle = float.PositiveInfinity;
             KeepGarbage nearestTrash = null;
             float nearestTrashDist = float.PositiveInfinity;

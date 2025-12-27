@@ -30,7 +30,6 @@ public class RuntimePlacementTool : MonoBehaviour
 
         uiRect = new Rect(10f, 10f, 280f, 220f);
 
-        // Load prefabs from Resources/Placement/*
         garbagePrefab = Resources.Load<GameObject>("Placement/Garbage");
         obstaclePrefabs = new[]
         {
@@ -55,7 +54,6 @@ public class RuntimePlacementTool : MonoBehaviour
         if (cam == null) cam = Camera.main;
         if (cam == null) return;
 
-        // Не ставим объект, если кликнули по области UI.
         Vector2 mouseGui = Input.mousePosition;
         mouseGui.y = Screen.height - mouseGui.y;
         if (uiRect.Contains(mouseGui)) return;

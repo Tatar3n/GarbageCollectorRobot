@@ -276,7 +276,7 @@ public class FuzzyFunction
         }
             if (speed < 0.0001f)
             {
-                return 5f;
+                return -1000f;
             }
             return 0f;
     }

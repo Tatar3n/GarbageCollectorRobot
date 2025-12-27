@@ -59,6 +59,16 @@ namespace Fuzzy
         private float lastGabaritMinDist = float.MaxValue;
         private Vector2 lastBaseDirection = Vector2.right;
 
+        [Header("Avoidance (stop + turn)")]
+        [Tooltip("If obstacle is closer than this fraction of obstacleAvoidDistance, stop and turn in place.")]
+        [Range(0.1f, 0.95f)]
+        public float stopTurnDistanceFactor = 0.45f;
+        [Tooltip("How long to keep moving along the chosen avoidance direction (seconds).")]
+        public float avoidDirectionHoldTime = 0.6f;
+
+        private float avoidDirectionTimer = 0f;
+        private Vector2 avoidDirection = Vector2.zero;
+
         // Stuck / escape
         private float stuckCheckTimer = 0f;
         private float stuckTimer = 0f;
@@ -287,6 +297,15 @@ namespace Fuzzy
             }
 
             rotationTimer += dt;
+            if (avoidDirectionTimer > 0f)
+            {
+                avoidDirectionTimer -= dt;
+                if (avoidDirectionTimer <= 0f)
+                {
+                    avoidDirection = Vector2.zero;
+                    avoidDirectionTimer = 0f;
+                }
+            }
 
             // Разворот на 360° - только в состоянии Searching
             if (rotationTimer >= rotationInterval &&
@@ -340,8 +359,36 @@ namespace Fuzzy
                     return;
                 }
 
-                Vector2 baseDir = toTarget.normalized;
+                Vector2 baseDir = (avoidDirectionTimer > 0f && avoidDirection.sqrMagnitude > 0.0001f)
+                    ? avoidDirection.normalized
+                    : toTarget.normalized;
                 lastBaseDirection = baseDir;
+
+                // Если впереди очень близко препятствие — полностью останавливаемся и разворачиваемся на месте,
+                // а затем коротко едем по выбранной стороне, чтобы "отлипнуть" от стены.
+                float stopDist = obstacleAvoidDistance * stopTurnDistanceFactor;
+                RaycastHit2D frontHit = RaycastObstacle(frontSensor ? frontSensor.position : (Vector2)transform.position, baseDir);
+                float dFront = frontHit.collider ? frontHit.distance : float.MaxValue;
+                if (frontHit.collider != null && dFront <= stopDist)
+                {
+                    Transform leftS = frontLeftSensor ? frontLeftSensor : back2Sensor;
+                    Transform rightS = frontRightSensor ? frontRightSensor : back1Sensor;
+                    float dLeft = leftS ? CheckObstacleDistance(leftS, baseDir) : float.MaxValue;
+                    float dRight = rightS ? CheckObstacleDistance(rightS, baseDir) : float.MaxValue;
+
+                    Vector2 right = new Vector2(baseDir.y, -baseDir.x).normalized; // CW
+                    Vector2 turnDir = (dRight >= dLeft) ? right : -right;
+
+                    isAvoiding = true;
+                    rotationTimer = 0f;
+                    avoidDirection = turnDir;
+                    avoidDirectionTimer = avoidDirectionHoldTime;
+                    movementDirection = turnDir; // для поворота "головы" на месте
+                    targetSpeed = 0f;
+                    speed = 0f;
+                    return;
+                }
+
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ (по переднему датчику)
@@ -361,8 +408,34 @@ namespace Fuzzy
                     searchTimer = 0f;
                     searchChangeTime = Random.Range(1f, 3f);
                 }
-                Vector2 baseDir = searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right;
+                Vector2 baseDir = (avoidDirectionTimer > 0f && avoidDirection.sqrMagnitude > 0.0001f)
+                    ? avoidDirection.normalized
+                    : (searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right);
                 lastBaseDirection = baseDir;
+
+                float stopDist = obstacleAvoidDistance * stopTurnDistanceFactor;
+                RaycastHit2D frontHit = RaycastObstacle(frontSensor ? frontSensor.position : (Vector2)transform.position, baseDir);
+                float dFront = frontHit.collider ? frontHit.distance : float.MaxValue;
+                if (frontHit.collider != null && dFront <= stopDist)
+                {
+                    Transform leftS = frontLeftSensor ? frontLeftSensor : back2Sensor;
+                    Transform rightS = frontRightSensor ? frontRightSensor : back1Sensor;
+                    float dLeft = leftS ? CheckObstacleDistance(leftS, baseDir) : float.MaxValue;
+                    float dRight = rightS ? CheckObstacleDistance(rightS, baseDir) : float.MaxValue;
+
+                    Vector2 right = new Vector2(baseDir.y, -baseDir.x).normalized; // CW
+                    Vector2 turnDir = (dRight >= dLeft) ? right : -right;
+
+                    isAvoiding = true;
+                    rotationTimer = 0f;
+                    avoidDirection = turnDir;
+                    avoidDirectionTimer = avoidDirectionHoldTime;
+                    movementDirection = turnDir;
+                    targetSpeed = 0f;
+                    speed = 0f;
+                    return;
+                }
+
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
                 float frontDist = CheckObstacleDistance(frontSensor, baseDir);
@@ -407,32 +480,6 @@ namespace Fuzzy
             float dFront = frontHit.collider ? frontHit.distance : float.MaxValue;
             float dLeft = leftS ? CheckObstacleDistance(leftS, baseDir) : float.MaxValue;
             float dRight = rightS ? CheckObstacleDistance(rightS, baseDir) : float.MaxValue;
-
-            // Аварийное объезжание: если прямо перед нами стена очень близко,
-            // поворот на 45° часто всё равно "вжимает" в стену. Вместо этого едем вдоль стены (по касательной).
-            float emergencyDist = obstacleAvoidDistance * 0.55f;
-            if (frontHit.collider != null && dFront <= emergencyDist)
-            {
-                Vector2 n = frontHit.normal.sqrMagnitude > 0.0001f ? frontHit.normal.normalized : -baseDir.normalized;
-                // Две касательные к нормали (вдоль стены)
-                Vector2 t1 = new Vector2(-n.y, n.x).normalized;
-                Vector2 t2 = -t1;
-
-                // Предпочитаем сторону, где больше свободного места по краевым лучам.
-                bool preferRight = dRight > dLeft;
-                Vector2 right = new Vector2(baseDir.y, -baseDir.x).normalized; // CW = "вправо" относительно baseDir
-                Vector2 preferredSide = preferRight ? right : -right;
-
-                Vector2 t = Vector2.Dot(t1, preferredSide) >= Vector2.Dot(t2, preferredSide) ? t1 : t2;
-                // И чтобы не разворачиваться назад, выбираем касательную, которая имеет неотрицательную проекцию на baseDir.
-                if (Vector2.Dot(t, baseDir) < 0f) t = -t;
-
-                isAvoiding = true;
-                rotationTimer = 0f;
-                lastGabaritMinDist = Mathf.Min(dLeft, dRight);
-                // Сильно уводим в касательную, чтобы реально "съезжать" вдоль стены.
-                return Vector2.Lerp(baseDir.normalized, t, 0.9f).normalized;
-            }
 
             float dMin = Mathf.Min(dFront, dLeft, dRight);
             bool obstacleOnLeft = dLeft <= dRight;

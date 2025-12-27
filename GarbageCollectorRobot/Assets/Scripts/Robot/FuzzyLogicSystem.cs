@@ -553,10 +553,6 @@ namespace Fuzzy
             if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
 
             RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
-            if (showDebug)
-            {
-                Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
-            }
             return hit.collider ? hit.distance : float.MaxValue;
         }
 
@@ -568,10 +564,6 @@ namespace Fuzzy
             dir = dir.normalized;
 
             RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
-            if (showDebug)
-            {
-                Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
-            }
             return hit.collider ? hit.distance : float.MaxValue;
         }
 
@@ -601,6 +593,14 @@ namespace Fuzzy
 
         void UpdateStuckDetection(float dt)
         {
+            // Пока мы сознательно выполняем объезд/разворот у препятствия — не включаем анти-застревание.
+            // Иначе запускается Escape, появляются дополнительные лучи/дёрганье и кажется, что "включилась другая логика".
+            if (isAvoiding || avoidDirectionTimer > 0f)
+            {
+                ResetStuck();
+                return;
+            }
+
             // Не проверяем застревание во время разворота на 360°
             if (isRotating360)
             {

@@ -12,19 +12,6 @@ namespace Fuzzy
         public float rotationInterval = 5f;
         public float rotationDuration = 1f;
 
-        [Header("Anti-stuck")]
-        [Tooltip("How often we check if the robot is stuck.")]
-        public float stuckCheckInterval = 0.35f;
-        [Tooltip("If robot moved less than this between checks, we treat it as 'not progressing'.")]
-        public float stuckMinMove = 0.03f;
-        [Tooltip("Time of no-progress before escape maneuver triggers.")]
-        public float stuckTimeToTrigger = 1.1f;
-        [Tooltip("Duration of escape maneuver once triggered.")]
-        public float escapeDuration = 0.8f;
-        [Tooltip("How much to bias escape maneuver backwards from desired direction.")]
-        [Range(0f, 1f)]
-        public float escapeBackoff = 0.55f;
-
         public LayerMask obstacleLayer;
         public LayerMask garbageLayer;
 
@@ -53,14 +40,6 @@ namespace Fuzzy
         private Vector2 desiredVelocity = Vector2.zero;
         private float targetSpeed = 0f;
         private float lastGabaritMinDist = float.MaxValue;
-
-        // Stuck / escape
-        private float stuckCheckTimer = 0f;
-        private float stuckTimer = 0f;
-        private Vector2 lastStuckPos = Vector2.zero;
-        private bool isEscaping = false;
-        private float escapeTimer = 0f;
-        private Vector2 escapeDirection = Vector2.zero;
 
         private enum RobotState { Searching, GoingToGarbage, GoingToTrashbin, Unloading }
         private RobotState currentState = RobotState.Searching;
@@ -93,8 +72,6 @@ namespace Fuzzy
             FindAllTrashbins();
             searchDirection = Random.insideUnitCircle.normalized;
             rotationStartDirection = searchDirection;
-
-            lastStuckPos = transform.position;
             targetSpeed = speed;
 
             // In the current scene, sensor GameObjects have an extra Raycast debug script attached.
@@ -122,8 +99,6 @@ namespace Fuzzy
         void FixedUpdate()
         {
             // Движение выполняем в физическом тике, чтобы корректно работали коллайдеры/стены.
-            UpdateStuckDetection(Time.fixedDeltaTime);
-
             Vector2 moveDirForPhysics = movementDirection;
 
             // Если выполняется разворот на 360°, останавливаем движение
@@ -197,6 +172,9 @@ namespace Fuzzy
                 case RobotState.Searching:
                     if (!isRotating360)
                     {
+                        // Поиск мусора лучом выполняем всегда в режиме Searching.
+                        // Ограничение "датчики ничего не видят" относится к использованию searchDirection для ДВИЖЕНИЯ,
+                        // а не к поиску цели.
                         FindGarbageWithRay();
                     }
                     if (currentTarget != null)
@@ -268,10 +246,12 @@ namespace Fuzzy
             }
 
             rotationTimer += Time.deltaTime;
+            bool isSearchingNow = currentState == RobotState.Searching;
+            bool sensorsClear = isSearchingNow && ObstacleSensorsSeeNothing();
 
             // Разворот на 360° - только в состоянии Searching
             if (rotationTimer >= rotationInterval &&
-                currentState == RobotState.Searching)
+                isSearchingNow)
             {
                 // Но сначала проверим, есть ли мусор в поле зрения
                 bool canStartRotation = true;
@@ -313,14 +293,6 @@ namespace Fuzzy
                     return;
                 }
 
-                // Если застряли — делаем короткий "escape" манёвр
-                if (isEscaping)
-                {
-                    movementDirection = escapeDirection;
-                    isAvoiding = true;
-                    return;
-                }
-
                 Vector2 baseDir = toTarget.normalized;
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
@@ -331,9 +303,13 @@ namespace Fuzzy
                 speed = Mathf.Max(0f, targetSpeed);
                 return;
             }
-            else if (currentState == RobotState.Searching)
+            else if (isSearchingNow)
             {
-                // Обычный поисковой патруль
+                // SearchDirection должен быть активен ТОЛЬКО когда датчики не видят препятствий.
+                // Если датчики что-то видят — SearchDirection не обновляем и не используем как базовый курс.
+                // Важно: сам searchDirection (внутренний "компас") обновляем рандомно во время поиска всегда,
+                // иначе он может "замереть" навсегда в тесных местах. Но использовать его как базовый курс будем
+                // только когда датчики чистые.
                 searchTimer += Time.deltaTime;
                 if (searchTimer > searchChangeTime)
                 {
@@ -341,7 +317,17 @@ namespace Fuzzy
                     searchTimer = 0f;
                     searchChangeTime = Random.Range(1f, 3f);
                 }
-                Vector2 baseDir = searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right;
+                Vector2 baseDir;
+                if (sensorsClear)
+                {
+                    baseDir = searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right;
+                }
+                else
+                {
+                    // "Другая" логика тут не нужна: просто продолжаем текущий курс и даём Avoidance отработать.
+                    // Главное — не подмешивать SearchDirection, пока датчики видят препятствие.
+                    baseDir = movementDirection.sqrMagnitude > 0.0001f ? movementDirection.normalized : Vector2.right;
+                }
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
                 float frontDist = CheckObstacleDistance(frontSensor);
@@ -353,14 +339,6 @@ namespace Fuzzy
             else if (currentState == RobotState.Unloading)
             {
                 movementDirection = Vector2.zero;
-                return;
-            }
-
-            if (isEscaping)
-            {
-                movementDirection = escapeDirection;
-                isAvoiding = true;
-                rotationTimer = 0f;
                 return;
             }
         }
@@ -459,6 +437,24 @@ namespace Fuzzy
             return hit.collider ? hit.distance : float.MaxValue;
         }
 
+        bool ObstacleSensorsSeeNothing()
+        {
+            // "Датчики ничего не видят" = ни один сенсор не попал лучом в obstacleLayer.
+            // Используем их "наружное" направление (как и в CheckObstacleDistance).
+            return !SensorHitsObstacle(frontSensor) &&
+                   !SensorHitsObstacle(back1Sensor) &&
+                   !SensorHitsObstacle(back2Sensor);
+        }
+
+        bool SensorHitsObstacle(Transform sensor)
+        {
+            if (sensor == null) return false;
+            Vector2 dir = GetSensorWorldDirection(sensor);
+            if (dir.sqrMagnitude < 0.0001f) return false;
+            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
+            return hit.collider != null;
+        }
+
         void ApplyRotation()
         {
             // При развороте на 360° поворачиваемся по searchDirection
@@ -472,126 +468,6 @@ namespace Fuzzy
                 float angle = Mathf.Atan2(movementDirection.y, movementDirection.x) * Mathf.Rad2Deg;
                 transform.rotation = Quaternion.Euler(0, 0, angle - 90f);
             }
-        }
-
-        void UpdateStuckDetection(float dt)
-        {
-            // Не проверяем застревание во время разворота на 360°
-            if (isRotating360)
-            {
-                ResetStuck();
-                return;
-            }
-
-            if (currentState == RobotState.Unloading)
-            {
-                ResetStuck();
-                return;
-            }
-
-            // Если нечётная логика "просит остановиться" — обычно это не застревание.
-            // Но если рядом реально препятствие/граница, робот может "залипнуть" в ноль скорости и не сделать escape.
-            if (speed < 0.15f || targetSpeed < 0.15f)
-            {
-                if (!IsObstacleVeryClose())
-                {
-                    stuckTimer = 0f;
-                    return;
-                }
-            }
-
-            // Escape таймер
-            if (isEscaping)
-            {
-                escapeTimer -= dt;
-                if (escapeTimer <= 0f)
-                {
-                    isEscaping = false;
-                    escapeDirection = Vector2.zero;
-                }
-            }
-
-            // Проверка прогресса раз в интервал
-            stuckCheckTimer += dt;
-            if (stuckCheckTimer < stuckCheckInterval) return;
-            stuckCheckTimer = 0f;
-
-            float moved = Vector2.Distance(transform.position, lastStuckPos);
-            lastStuckPos = transform.position;
-
-            // Если мы вообще не пытаемся ехать — не считаем застреванием.
-            if (desiredVelocity.magnitude < 0.2f && movementDirection.magnitude < 0.2f)
-            {
-                stuckTimer = 0f;
-                return;
-            }
-
-            if (moved < stuckMinMove)
-            {
-                stuckTimer += stuckCheckInterval;
-            }
-            else
-            {
-                stuckTimer = 0f;
-            }
-
-            if (!isEscaping && stuckTimer >= stuckTimeToTrigger)
-            {
-                // Escape запускаем только если реально есть препятствие рядом (иначе можно "сорваться" на ровном месте).
-                float minDist = float.MaxValue;
-                if (frontSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontSensor));
-                if (back1Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back1Sensor));
-                if (back2Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back2Sensor));
-
-                bool nearObstacle = minDist < obstacleAvoidDistance * 1.1f;
-                if (nearObstacle)
-                {
-                    StartEscapeManeuver();
-                }
-                else
-                {
-                    // Нет препятствий рядом — сбрасываем таймер, чтобы не дёргаться.
-                    stuckTimer = 0f;
-                }
-            }
-        }
-
-        bool IsObstacleVeryClose()
-        {
-            float minDist = float.MaxValue;
-            if (frontSensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(frontSensor));
-            if (back1Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back1Sensor));
-            if (back2Sensor) minDist = Mathf.Min(minDist, CheckObstacleDistance(back2Sensor));
-
-            return minDist < obstacleAvoidDistance * 0.8f;
-        }
-
-        void StartEscapeManeuver()
-        {
-            stuckTimer = 0f;
-            isEscaping = true;
-            escapeTimer = escapeDuration;
-
-            Vector2 baseDir = movementDirection.sqrMagnitude > 0.0001f ? movementDirection.normalized : searchDirection.normalized;
-            if (baseDir.sqrMagnitude < 0.0001f) baseDir = Vector2.right;
-
-            int avoidSide = Random.value < 0.5f ? -1 : 1;
-            Vector2 side = Vector2.Perpendicular(baseDir).normalized * avoidSide;
-            Vector2 back = (-baseDir) * escapeBackoff;
-            Vector2 combined = side + back;
-
-            if (combined.sqrMagnitude < 0.0001f) combined = side;
-            escapeDirection = combined.normalized;
-        }
-
-        void ResetStuck()
-        {
-            stuckTimer = 0f;
-            stuckCheckTimer = 0f;
-            isEscaping = false;
-            escapeTimer = 0f;
-            escapeDirection = Vector2.zero;
-            lastStuckPos = transform.position;
         }
 
         void DebugInfo()
@@ -610,7 +486,7 @@ namespace Fuzzy
 
             string rotationStr = isRotating360 ? $"Rotating 360° ({(currentRotationTime / rotationDuration) * 100:F0}%)" : "Not rotating";
 
-            string info = $"State: {stateStr} | Garbage: {currentGarbageType} | Target: {targetStr} | Avoiding: {isAvoiding} | Escaping: {isEscaping} | {rotationStr} | Speed: {speed:F2}";
+            string info = $"State: {stateStr} | Garbage: {currentGarbageType} | Target: {targetStr} | Avoiding: {isAvoiding} | {rotationStr} | Speed: {speed:F2}";
             Debug.Log(info);
         }
 
@@ -635,7 +511,11 @@ namespace Fuzzy
             Gizmos.DrawWireSphere(transform.position, obstacleAvoidDistance);
 
             Gizmos.color = Color.red;
-            Gizmos.DrawRay(transform.position, searchDirection * detectionRadius);
+            // searchDirection — это "поисковый" вектор. Показываем его только когда реально в поиске/скане.
+            if (currentState == RobotState.Searching || isRotating360)
+            {
+                Gizmos.DrawRay(transform.position, searchDirection * detectionRadius);
+            }
         }
     }
 }

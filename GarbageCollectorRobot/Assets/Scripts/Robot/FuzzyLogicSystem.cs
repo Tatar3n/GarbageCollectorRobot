@@ -247,11 +247,12 @@ namespace Fuzzy
             }
 
             rotationTimer += Time.deltaTime;
-            bool sensorsClear = ObstacleSensorsSeeNothing();
+            bool isSearchingNow = currentState == RobotState.Searching;
+            bool sensorsClear = isSearchingNow && ObstacleSensorsSeeNothing();
 
             // Разворот на 360° - только в состоянии Searching
             if (rotationTimer >= rotationInterval &&
-                currentState == RobotState.Searching &&
+                isSearchingNow &&
                 sensorsClear)
             {
                 // Но сначала проверим, есть ли мусор в поле зрения
@@ -304,7 +305,7 @@ namespace Fuzzy
                 speed = Mathf.Max(0f, targetSpeed);
                 return;
             }
-            else if (currentState == RobotState.Searching)
+            else if (isSearchingNow)
             {
                 // SearchDirection должен быть активен ТОЛЬКО когда датчики не видят препятствий.
                 // Если датчики что-то видят — SearchDirection не обновляем и не используем как базовый курс.
@@ -513,7 +514,11 @@ namespace Fuzzy
             Gizmos.DrawWireSphere(transform.position, obstacleAvoidDistance);
 
             Gizmos.color = Color.red;
-            Gizmos.DrawRay(transform.position, searchDirection * detectionRadius);
+            // searchDirection — это "поисковый" вектор. Показываем его только когда реально в поиске/скане.
+            if (currentState == RobotState.Searching || isRotating360)
+            {
+                Gizmos.DrawRay(transform.position, searchDirection * detectionRadius);
+            }
         }
     }
 }

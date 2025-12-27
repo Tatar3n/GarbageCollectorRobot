@@ -225,11 +225,13 @@ public class FuzzyFunction
     // Поворот по габаритным датчикам (возвращает угол поворота робота, в градусах).
     // В функцию передаётся расстояние с датчика, который БЛИЖЕ к препятствию,
     // и признак: левый датчик или правый (true = левый).
-    public float Sentr_mass_rotate(float d, bool left)
+    public float Sentr_mass_rotate(float d, bool left, float speed)
     {
+
+
         List<float> list = distans(d);
         float part_funtion = list[2];
-        float k1 = list[0];
+        float k1 = list[0] + 0.2f;
         float k2 = list[1];
         if (part_funtion == 1f)// остановка
         {
@@ -238,7 +240,7 @@ public class FuzzyFunction
             {
                 k1 *= -1f;
             }
-            return k1 * 60f / 2f ;
+            return k1 * 80f / 2f ;
         }
         else if (part_funtion == 1.5f)// быстро зависит от далеко 
         {
@@ -247,7 +249,7 @@ public class FuzzyFunction
             {
                 k1 *= -1f;
             }
-            return k1 * 60f / 2f;
+            return k1 * 80f / 2f;
         }
         else if (part_funtion == 2f)// средне зависит от средне
         {
@@ -256,7 +258,7 @@ public class FuzzyFunction
             {
                 k1 *= -1f;
             }
-            return k1 * 60f / 2f;
+            return k1 * 80f / 2f;
         }
         else if (part_funtion == 2.5f)// быстро зависит от далеко 
         {
@@ -270,9 +272,13 @@ public class FuzzyFunction
             // резкость поворота зависит от кофициента уверености к близко (коффициенты написаны в ифах)
             // максимальный угол поворота пусть будет 45
             // угол поворота = коффицен * 45 / 2
-            return k1 * 60f / 2f;
+            return k1 * 80f / 2f;
         }
-        return 0f;
+            if (speed < 0.0001f)
+            {
+                return 5f;
+            }
+            return 0f;
     }
 }
 }

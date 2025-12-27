@@ -15,6 +15,14 @@ namespace Fuzzy
         public float detectionRadius = 5f;
         public float obstacleAvoidDistance = 1.5f;
 
+        [Header("Goal / Search (не влияет на fuzzy-формулы)")]
+        public bool enableGoalSeeking = true;
+        public float wanderRadius = 2.5f;
+        public float wanderPointReachDistance = 0.25f;
+        public Vector2 wanderRepathTimeRange = new Vector2(1f, 3f);
+        public bool seekTrashBinWhenCarrying = true;
+        public float trashBinRefreshInterval = 0.75f;
+
         [Header("Smoothing")]
         public float directionSmoothing = 10f;
         public float speedSmoothing = 8f;
@@ -29,6 +37,15 @@ namespace Fuzzy
         private Vector2 smoothedMoveDirection = Vector2.zero;
         private float targetSpeed = 0f;
         private Vector2 desiredVelocity = Vector2.zero;
+
+        // High-level movement target (search/delivery). Fuzzy logic below stays intact.
+        private Inventory inventory;
+        private Types.GType lastGarbageType = Types.GType.None;
+        private TrashBin cachedTargetBin;
+        private float nextBinRefreshTime;
+        private Vector2 currentWanderPoint;
+        private bool hasWanderPoint;
+        private float nextWanderPickTime;
 
         void Start()
         {
@@ -46,8 +63,10 @@ namespace Fuzzy
                 manualMove.enabled = false;
             }
 
+            inventory = GetComponent<Inventory>();
             smoothedMoveDirection = Vector2.right;
             targetSpeed = speed;
+            PickNewWanderPoint();
         }
 
         void Update()
@@ -82,9 +101,13 @@ namespace Fuzzy
 
         void CalculateMovement()
         {
+            Vector2 baseDesiredDirection = GetBaseDesiredDirection();
+
             // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ (по переднему датчику)
             float frontDist = CheckObstacleDistance(frontSensor);
-            targetSpeed = fuzzyFunction.Sentr_mass(frontDist);
+            float leftDist = CheckObstacleDistance(back1Sensor);
+            float rightDist = CheckObstacleDistance(back2Sensor);
+            targetSpeed = fuzzyFunction.Sentr_mass(Mathf.Min(frontDist, leftDist, rightDist));
 
             // Нечёткая логика для поворота (по боковым датчикам)
             float dRight = back1Sensor ? CheckObstacleDistance(back1Sensor) : float.MaxValue;
@@ -103,11 +126,19 @@ namespace Fuzzy
                 isLeft = true;
             }
 
-            float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, isLeft);
+            float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, isLeft, targetSpeed);
             Debug.Log(dMin);
             Debug.Log(turnAngle);
 
-            Vector2 forward = (smoothedMoveDirection.sqrMagnitude > 0.0001f ? smoothedMoveDirection : Vector2.right).normalized;
+            Vector2 forward;
+            if (enableGoalSeeking && baseDesiredDirection.sqrMagnitude > 0.0001f)
+            {
+                forward = baseDesiredDirection.normalized;
+            }
+            else
+            {
+                forward = (smoothedMoveDirection.sqrMagnitude > 0.0001f ? smoothedMoveDirection : Vector2.right).normalized;
+            }
             Vector2 turned = (Vector2)(Quaternion.Euler(0f, 0f, turnAngle) * forward);
 
             if (turned.sqrMagnitude > 0.0001f)
@@ -168,6 +199,98 @@ namespace Fuzzy
                 Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
             }
             return hit.collider ? hit.distance : float.MaxValue;
+        }
+
+        private Vector2 GetBaseDesiredDirection()
+        {
+            if (!enableGoalSeeking)
+            {
+                return Vector2.zero;
+            }
+
+            // If Inventory isn't present – fallback to wander.
+            Types.GType carried = Types.GType.None;
+            if (inventory != null)
+            {
+                carried = inventory.getCell();
+            }
+
+            // If carrying garbage -> go to matching trash bin.
+            if (seekTrashBinWhenCarrying && carried != Types.GType.None)
+            {
+                if (carried != lastGarbageType)
+                {
+                    lastGarbageType = carried;
+                    cachedTargetBin = null;
+                    nextBinRefreshTime = 0f;
+                }
+
+                if (Time.time >= nextBinRefreshTime || cachedTargetBin == null || cachedTargetBin.garbageType != carried)
+                {
+                    cachedTargetBin = FindClosestTrashBin(carried);
+                    nextBinRefreshTime = Time.time + Mathf.Max(0.05f, trashBinRefreshInterval);
+                }
+
+                if (cachedTargetBin != null)
+                {
+                    Vector2 toBin = (Vector2)cachedTargetBin.transform.position - (Vector2)transform.position;
+                    return toBin;
+                }
+            }
+            else
+            {
+                lastGarbageType = Types.GType.None;
+                cachedTargetBin = null;
+            }
+
+            // Search mode: wander to random points near the robot.
+            if (!hasWanderPoint || Time.time >= nextWanderPickTime)
+            {
+                PickNewWanderPoint();
+            }
+
+            Vector2 toPoint = currentWanderPoint - (Vector2)transform.position;
+            if (toPoint.magnitude <= Mathf.Max(0.01f, wanderPointReachDistance))
+            {
+                PickNewWanderPoint();
+                toPoint = currentWanderPoint - (Vector2)transform.position;
+            }
+
+            return toPoint;
+        }
+
+        private void PickNewWanderPoint()
+        {
+            Vector2 center = transform.position;
+            Vector2 offset = Random.insideUnitCircle * Mathf.Max(0.01f, wanderRadius);
+            currentWanderPoint = center + offset;
+            hasWanderPoint = true;
+
+            float minT = Mathf.Max(0.05f, wanderRepathTimeRange.x);
+            float maxT = Mathf.Max(minT, wanderRepathTimeRange.y);
+            nextWanderPickTime = Time.time + Random.Range(minT, maxT);
+        }
+
+        private TrashBin FindClosestTrashBin(Types.GType type)
+        {
+            TrashBin[] bins = FindObjectsOfType<TrashBin>();
+            TrashBin best = null;
+            float bestDistSq = float.PositiveInfinity;
+            Vector2 pos = transform.position;
+
+            for (int i = 0; i < bins.Length; i++)
+            {
+                TrashBin b = bins[i];
+                if (b == null || b.garbageType != type) continue;
+                float d = ((Vector2)b.transform.position - pos).sqrMagnitude;
+                if (d < bestDistSq)
+                {
+                    bestDistSq = d;
+                    best = b;
+                }
+            }
+
+            return best;
         }
     }
 }

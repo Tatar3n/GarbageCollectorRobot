@@ -70,20 +70,15 @@ namespace Fuzzy
         private enum RobotState { Searching, GoingToGarbage, GoingToTrashbin, Unloading }
         private RobotState currentState = RobotState.Searching;
 
-        void Start()
+        void Awake()
         {
+            // Важно делать это в Awake, чтобы никакие другие скрипты (например Move)
+            // не успели начать управлять Rigidbody2D в первый физический тик.
             inventory = GetComponent<Inventory>();
-            if (inventory == null)
-            {
-                Debug.LogError("Inventory component not found!");
-                enabled = false;
-                return;
-            }
 
             rb = GetComponent<Rigidbody2D>();
             if (rb != null)
             {
-                // Управление движением берём на себя: без гравитации, без вращения, движение через MovePosition в FixedUpdate.
                 rb.gravityScale = 0f;
                 rb.constraints = RigidbodyConstraints2D.FreezeRotation;
             }
@@ -93,6 +88,16 @@ namespace Fuzzy
             if (manualMove != null)
             {
                 manualMove.enabled = false;
+            }
+        }
+
+        void Start()
+        {
+            if (inventory == null)
+            {
+                Debug.LogError("Inventory component not found!");
+                enabled = false;
+                return;
             }
 
             FindAllTrashbins();

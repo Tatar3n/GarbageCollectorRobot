@@ -84,40 +84,40 @@ public class FuzzyFunction
         float k1 = 0f;
         float k2 = 0f;
         float part_funtion = 0f;
-        if (d <= 0.3f)
+        if (d <= 0.7f)
         {
             k1=1f;
             part_funtion=1f;
         }
-        else if ((d > 0.3f) && (d <0.4f))
+        else if ((d > 0.7f) && (d <0.9f))
         {
-            k1=-10f*(d-0.3f) + 1f;
-            k2=10f*(d-0.3f);
+            k1=-5f*(d-0.7f) + 1f;
+            k2=5f*(d-0.7f);
             part_funtion=1.5f;
         }
-        else if ((d >= 0.4f) && (d <= 0.5f))
+        else if ((d >= 0.9f) && (d <= 1.3f))
         {
             k1=1f;
             part_funtion=2f;
         }
-        else if ((d > 0.5f) && (d < 0.6f))
+        else if ((d > 1.3f) && (d < 1.7f))
         {
-            k1=-10f*(d-0.5f) + 1f;
-            k2=10f*(d-0.5f);
+            k1=-2.5f*(d-1.3f) + 1f;
+            k2=2.5f*(d-1.3f);
             part_funtion=2.5f;
         }
-        else if ((d >= 0.6f) && (d <= 0.9f))
+        else if ((d >= 1.7f) && (d <= 2.1f))
         {
             k1=1f;
             part_funtion=3f;
         }
-        else if ((d > 0.9f) && (d < 1f))
+        else if ((d > 2.1f) && (d < 2.5f))
         {
-            k1=-10f*(d-0.9f) + 1f;
-            k2=10f*(d-0.9f);
+            k1=-2.5f*(d-2.1f) + 1f;
+            k2=2.5f*(d-2.1f);
             part_funtion=3.5f;
         }
-        else if (d >= 1f)
+        else if (d >= 2.5f)
         {
             k1=1f;
             part_funtion=4f;
@@ -234,33 +234,33 @@ public class FuzzyFunction
         if (part_funtion == 1f)// остановка
         {
             k1 = 2f;
-            if (!left)
+            if (left)
             {
                 k1 *= -1f;
             }
-            return k1 * 45f / 2f;
+            return k1 * 60f / 2f ;
         }
         else if (part_funtion == 1.5f)// быстро зависит от далеко 
         {
             k1 = 1f + 1f - k2;
-            if (!left)
+            if (left)
             {
                 k1 *= -1f;
             }
-            return k1 * 45f / 2f;
+            return k1 * 60f / 2f;
         }
         else if (part_funtion == 2f)// средне зависит от средне
         {
             k1 = 1f;
-            if (!left)
+            if (left)
             {
                 k1 *= -1f;
             }
-            return k1 * 45f / 2f;
+            return k1 * 60f / 2f;
         }
         else if (part_funtion == 2.5f)// быстро зависит от далеко 
         {
-            if (!left)
+            if (left)
             {
                 k1 *= -1f;
             }
@@ -270,7 +270,7 @@ public class FuzzyFunction
             // резкость поворота зависит от кофициента уверености к близко (коффициенты написаны в ифах)
             // максимальный угол поворота пусть будет 45
             // угол поворота = коффицен * 45 / 2
-            return k1 * 45f / 2f;
+            return k1 * 60f / 2f;
         }
         return 0f;
     }

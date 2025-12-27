@@ -606,7 +606,7 @@ Transform:
   m_GameObject: {fileID: 350677586}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.293, y: 0.146, z: 0}
+  m_LocalPosition: {x: 0.29, y: 0.1, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1996,7 +1996,7 @@ Transform:
   m_GameObject: {fileID: 1630436227}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.304, y: 0.127, z: 0}
+  m_LocalPosition: {x: -0.32, y: 0.04, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2218,44 +2218,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b0b50749c693b6044bbf88cec911ce40, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  frontSensor: {fileID: 681715599}
+  back1Sensor: {fileID: 845948928}
+  back2Sensor: {fileID: 2098126882}
   speed: 1
   detectionRadius: 4
-  obstacleAvoidDistance: 0.8
-  rotationInterval: 2
-  safeDistance: 0.4
-  rotationDuration: 1
-  safeZoneDistance: 0.4
-  boundaryCooldown: 1
+  obstacleAvoidDistance: 2
   directionSmoothing: 10
   speedSmoothing: 8
   maxAcceleration: 20
-  avoidanceWeight: 1.2
-  tangentWeight: 1
-  avoidSideLockTime: 0.8
-  clearFactor: 1.15
-  sharpTurnSpeedFactor: 1
-  turnSlowStartAngle: 60
-  turnSlowFullAngle: 360
-  emergencySnapDistance: 0.22
-  boundaryApproachThreshold: 1
-  stuckCheckInterval: 0.35
-  stuckMinMove: 0.03
-  stuckTimeToTrigger: 1.1
-  escapeDuration: 0.8
-  escapeBackoff: 0.45
   obstacleLayer:
     serializedVersion: 2
     m_Bits: 1024
-  garbageLayer:
-    serializedVersion: 2
-    m_Bits: 2048
-  frontSensor: {fileID: 681715599}
-  frontLeftSensor: {fileID: 2098126882}
-  frontRightSensor: {fileID: 845948928}
-  back1Sensor: {fileID: 845948928}
-  back2Sensor: {fileID: 2098126882}
-  leftSensor: {fileID: 1630436228}
-  rightSensor: {fileID: 350677587}
   showDebug: 1
 --- !u!1 &1983125658
 GameObject:

@@ -31,6 +31,10 @@ namespace Fuzzy
         private readonly FuzzyFunction fuzzyFunction = new FuzzyFunction();
 
         public Transform frontSensor;
+        // Optional sensors (in SampleScene these exist as frontLeft/frontRight).
+        // Used as left/right "edge" ray origins for obstacle avoidance.
+        public Transform frontLeftSensor;
+        public Transform frontRightSensor;
         public Transform back1Sensor;
         public Transform back2Sensor;
 
@@ -53,6 +57,7 @@ namespace Fuzzy
         private Vector2 desiredVelocity = Vector2.zero;
         private float targetSpeed = 0f;
         private float lastGabaritMinDist = float.MaxValue;
+        private Vector2 lastBaseDirection = Vector2.right;
 
         // Stuck / escape
         private float stuckCheckTimer = 0f;
@@ -114,7 +119,6 @@ namespace Fuzzy
             }
 
             SelectTargetBasedOnState();
-            CalculateMovement();
             ApplyRotation();
             if (showDebug) DebugInfo();
         }
@@ -123,6 +127,7 @@ namespace Fuzzy
         {
             // Движение выполняем в физическом тике, чтобы корректно работали коллайдеры/стены.
             UpdateStuckDetection(Time.fixedDeltaTime);
+            CalculateMovement(Time.fixedDeltaTime);
 
             Vector2 moveDirForPhysics = movementDirection;
 
@@ -258,16 +263,16 @@ namespace Fuzzy
             }
         }
 
-        void CalculateMovement()
+        void CalculateMovement(float dt)
         {
             if (isRotating360)
             {
-                Handle360Rotation();
+                Handle360Rotation(dt);
                 movementDirection = Vector2.zero;
                 return;
             }
 
-            rotationTimer += Time.deltaTime;
+            rotationTimer += dt;
 
             // Разворот на 360° - только в состоянии Searching
             if (rotationTimer >= rotationInterval &&
@@ -322,10 +327,11 @@ namespace Fuzzy
                 }
 
                 Vector2 baseDir = toTarget.normalized;
+                lastBaseDirection = baseDir;
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
                 // НЕЧЁТКАЯ ЛОГИКА ДЛЯ СКОРОСТИ (по переднему датчику)
-                float frontDist = CheckObstacleDistance(frontSensor);
+                float frontDist = CheckObstacleDistance(frontSensor, baseDir);
                 float speedDist = Mathf.Min(frontDist, lastGabaritMinDist);
                 targetSpeed = fuzzyFunction.Sentr_mass(speedDist);
                 speed = Mathf.Max(0f, targetSpeed);
@@ -334,7 +340,7 @@ namespace Fuzzy
             else if (currentState == RobotState.Searching)
             {
                 // Обычный поисковой патруль
-                searchTimer += Time.deltaTime;
+                searchTimer += dt;
                 if (searchTimer > searchChangeTime)
                 {
                     searchDirection = Random.insideUnitCircle.normalized;
@@ -342,9 +348,10 @@ namespace Fuzzy
                     searchChangeTime = Random.Range(1f, 3f);
                 }
                 Vector2 baseDir = searchDirection.sqrMagnitude > 0.0001f ? searchDirection.normalized : Vector2.right;
+                lastBaseDirection = baseDir;
                 movementDirection = ApplyFuzzyObstacleTurn(baseDir);
 
-                float frontDist = CheckObstacleDistance(frontSensor);
+                float frontDist = CheckObstacleDistance(frontSensor, baseDir);
                 float speedDist = Mathf.Min(frontDist, lastGabaritMinDist);
                 targetSpeed = fuzzyFunction.Sentr_mass(speedDist);
                 speed = Mathf.Max(0f, targetSpeed);
@@ -377,16 +384,20 @@ namespace Fuzzy
         {
             if (baseDir.sqrMagnitude < 0.0001f) return Vector2.zero;
 
-            // Берём два габаритных датчика (левый/правый). В Sentr_mass_rotate передаём расстояние
-            // с датчика, который ближе к препятствию.
-            float dRight = back1Sensor ? CheckObstacleDistance(back1Sensor) : float.MaxValue;
-            float dLeft = back2Sensor ? CheckObstacleDistance(back2Sensor) : float.MaxValue;
+            // Сенсоры должны задавать точки на краях робота, а направление луча — быть по курсу движения (baseDir).
+            // Иначе при движении "в лоб" робот может тормозить, но не получать команду на поворот вовремя.
+            Transform leftS = frontLeftSensor ? frontLeftSensor : back2Sensor;
+            Transform rightS = frontRightSensor ? frontRightSensor : back1Sensor;
 
-            float dMin = Mathf.Min(dLeft, dRight);
-            bool isLeft = dLeft <= dRight;
+            float dFront = CheckObstacleDistance(frontSensor, baseDir);
+            float dLeft = leftS ? CheckObstacleDistance(leftS, baseDir) : float.MaxValue;
+            float dRight = rightS ? CheckObstacleDistance(rightS, baseDir) : float.MaxValue;
 
-            float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, isLeft);
-            lastGabaritMinDist = dMin;
+            float dMin = Mathf.Min(dFront, dLeft, dRight);
+            bool obstacleOnLeft = dLeft <= dRight;
+
+            float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, obstacleOnLeft);
+            lastGabaritMinDist = Mathf.Min(dLeft, dRight);
             if (Mathf.Abs(turnAngle) <= 0.001f)
             {
                 isAvoiding = false;
@@ -425,15 +436,17 @@ namespace Fuzzy
             Debug.Log("Starting 360-degree rotation on spot");
         }
 
-        void Handle360Rotation()
+        void Handle360Rotation(float dt)
         {
-            currentRotationTime += Time.deltaTime;
+            currentRotationTime += dt;
 
             if (currentRotationTime >= rotationDuration)
             {
                 isRotating360 = false;
                 rotationTimer = 0f;
-                searchDirection = Quaternion.Euler(0, 0, 360f) * rotationStartDirection;
+                // 360° * rotationStartDirection возвращает тот же вектор; после сканирования
+                // логичнее сменить направление поиска, чтобы не "ехать в стену" снова.
+                searchDirection = Random.insideUnitCircle.normalized;
                 Debug.Log("360-degree rotation on spot completed");
                 return;
             }
@@ -450,6 +463,21 @@ namespace Fuzzy
             if (sensor == null) return float.MaxValue;
             Vector2 dir = GetSensorWorldDirection(sensor);
             if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
+
+            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
+            if (showDebug)
+            {
+                Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
+            }
+            return hit.collider ? hit.distance : float.MaxValue;
+        }
+
+        float CheckObstacleDistance(Transform sensor, Vector2 castDirection)
+        {
+            if (sensor == null) return float.MaxValue;
+            Vector2 dir = castDirection.sqrMagnitude > 0.0001f ? castDirection : lastBaseDirection;
+            if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
+            dir = dir.normalized;
 
             RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
             if (showDebug)

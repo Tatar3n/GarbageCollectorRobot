@@ -128,6 +128,148 @@ public class FuzzyFunction
         list.Add(part_funtion);
         return list;
     }
+    public List<float> distans_angle(float d)//функция нахождения дистанций
+    {
+        float k1 = 0f;
+        float k2 = 0f;
+        float part_funtion = 0f;
+        if (d <= 0.3f)
+        {
+            k1=1f;
+            part_funtion=1f;
+        }
+        else if ((d > 0.3f) && (d <0.5f))
+        {
+            k1=-5f*(d-0.3f) + 1f;
+            k2=5f*(d-0.3f);
+            part_funtion=1.5f;
+        }
+        else if ((d >= 0.5f) && (d <= 0.9f))
+        {
+            k1=1f;
+            part_funtion=2f;
+        }
+        else if ((d > 0.9f) && (d < 1.3f))
+        {
+            k1=-2.5f*(d-0.9f) + 1f;
+            k2=2.5f*(d-0.9f);
+            part_funtion=2.5f;
+        }
+        else if ((d >= 1.3f) && (d <= 1.7f))
+        {
+            k1=1f;
+            part_funtion=3f;
+        }
+        else if ((d > 1.7f) && (d < 2.1f))
+        {
+            k1=-2.5f*(d-1.7f) + 1f;
+            k2=2.5f*(d-1.7f);
+            part_funtion=3.5f;
+        }
+        else if (d >= 2.1f)
+        {
+            k1=1f;
+            part_funtion=4f;
+        }
+        List<float> list = new List<float>();
+        list.Add(k1);
+        list.Add(k2);
+        list.Add(part_funtion);
+        return list;
+    }
+    public List<float> Suport_angle(List<float> inputList)//функция для нахождения отрезков где функция возрастает и убывает
+    {
+        float k1 = inputList[0];//правая
+        float k2 = inputList[1];//левая
+        float part_funtion = inputList[2];
+
+        float q1 = 0.0f;
+        float q2 = 0.0f;
+        float q3 = 0.0f;//начало убывания в конце
+        float q4 = 0.0f;
+
+        //если левая меньше чем правая возрастает на пересечений функции
+        //если правая больше чем левая убывает до пересесеыения функции
+        if (part_funtion == 1.5f)// быстро зависит от далеко 
+        {
+
+            if (k1 == k2)
+            {
+                //прямая линия и убывание только в конце правого
+                q1=20f*k1+40f;
+            }
+            else if (k1 < k2)//есть ещё перемычка в середине между медленно и средне
+            {
+                q1=20f*k1+40f;//конец роста
+                q2=40*k1+90;//начало роста
+                q3=40*k2+90;//конец роста
+            }
+            else if (k1 > k2)
+            {
+                q1=20f*k1+40f;//конец роста
+                q2=-40f*(k1-1f)+90f;//начало падения
+                q3=-40f*(k2-1f)+90f;//конец падения
+            }
+        }
+        else if (part_funtion == 2.5f)// быстро зависит от далеко 
+        {
+
+            if (k1 == k2)
+            {
+                q1=20*k1;//конец роста
+                q2=-40f*(k2-1f)+90f;//начало падения
+            }
+            else if (k1 < k2)
+            {
+                //в начале
+                q1=20*k1;//конец роста
+                //в перемычке 
+                q2=20f*k1+40f;//начинает возрастать
+                q3=20f*k2+40f;//конец роста
+                q4=-40f*(k2-1f)+90f;//начало падения
+            }
+            else if (k1 > k2)
+            {
+                //убывает до пересечения левого и правогл
+                //в начале
+                q1=20*k1;//конец роста
+                //в перемычке 
+                q2=-20f*(k1-1f)+40f;//начало падения
+                q3=-20f*(k2-1f)+40f;//конец падения
+                q4=-40f*(k2-1f)+90f;//начало падения
+            }
+        }
+        else if (part_funtion == 3.5f)// быстро зависит от далеко 
+        {
+
+            if (k1 == k2)
+            {
+                q1=-20f*(k2-1f)+40f;//начало падения
+            }
+            else if (k1 < k2)
+            {
+                q1=20*k1;//начало роста
+                q2=20*k2;//конец роста
+                q3=-20f*(k2-1f)+40f;//начало падения
+            }
+            else if (k1 > k2)
+            {
+                q1=-20*(k1-1f);//начало падения
+                q2=-20*(k2-1f);//конец падения
+                q3=-20f*(k2-1f)+40f;//начало падения
+            }
+        }
+        List<float> resultList = new List<float>();
+        resultList.Add(q1);
+        resultList.Add(q2);
+        resultList.Add(q3);
+        resultList.Add(q4);
+        resultList.Add(part_funtion);
+        resultList.Add(k1);
+        resultList.Add(k2);
+        return resultList;
+
+    }
     public float Integrate(float a, float b, float x1, float x2, bool isNumerator)
     {
         if (isNumerator)
@@ -225,54 +367,89 @@ public class FuzzyFunction
     // В функцию передаётся расстояние с датчика, который БЛИЖЕ к препятствию,
     // и признак: левый датчик или правый (true = левый).
     public float Sentr_mass_rotate(float d, bool left, bool trash)
-    {
-
-
-        List<float> list = distans(d);
-        float part_funtion = list[2];
-        float k1 = list[0] + 0.2f;
-        float k2 = list[1];
-        float rand = 0f;
-        if (!trash)
+        {
+        List<float> list = distans_angle(d);
+        List<float> list1 = Suport_angle(list);
+        float cof=1f;
+        if (left)
             {
-                rand = Random.Range(-2f, 10f);
+                cof=-1f;
             }
+        float q1 = list1[0];
+        float q2 = list1[1];
+        float q3 = list1[2];
+        float q4 = list1[3];
+        float part_funtion = list1[4];
+        float k1 = list1[5];
+        float k2 = list1[6];
         if (part_funtion == 1f)// остановка
         {
-            k1 = 2f;
-            if (left)
-            {
-                k1 *= -1f;
-            }
-            return k1 * 80f / 2f +rand;
+            return cof*((Integrate(0.025f,-2.25f,90f,130f,true)+Integrate(0f,1f,130f,150f,true))/(Integrate(0.025f,-2.25f,90f,130f,false)+Integrate(0f,1f,130f,150f,false)));
         }
+        //если левая меньше чем правая возрастает на пересечений функции
+        //если правая больше чем левая убывает до пересесеыения функции
         else if (part_funtion == 1.5f)// быстро зависит от далеко 
         {
-            k1 = 1f + 1f - k2;
-            if (left)
+
+            if (k1 == k2)
             {
-                k1 *= -1f;
+                return cof*((Integrate(0.05f,-2f,40f,q1,true)+Integrate(0f,0.5f,q1,150f,true))/(Integrate(0.05f,-2f,40f,q1,false)+Integrate(0f,0.5f,q1,150f,false)));
             }
-            return k1 * 80f / 2f + rand;
+            else if (k1 < k2)
+            {
+                return cof*((Integrate(0.05f,-2f,40f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(0.025f,-2.25f,q2,q3,true)+Integrate(0f,k2,q3,150f,true))/(Integrate(0.05f,-2f,40f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(0.025f,-2.25f,q2,q3,false)+Integrate(0f,k2,q3,150f,false)));
+            }
+            else if (k1 > k2)
+            {
+                return cof*((Integrate(0.05f,-2f,40f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(-0.025f,3.25f,q2,q3,true)+Integrate(0f,k2,q3,150f,true))/(Integrate(0.05f,-2f,40f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(-0.025f,3.25f,q2,q3,false)+Integrate(0f,k2,q3,150f,false)));
+            }
         }
         else if (part_funtion == 2f)// средне зависит от средне
         {
-            k1 = 1f;
-            if (left)
-            {
-                k1 *= -1f;
-            }
-            return k1 * 80f / 2f + rand;
+            return cof*((Integrate(0.05f,-2f,40f,60f,true)+Integrate(0f,1f,60f,90f,true)+Integrate(-0.025f,3.25f,90f,130f,true))/(Integrate(0.05f,-2f,40f,60f,false)+Integrate(0f,1f,60f,90f,false)+Integrate(-0.025f,3.25f,90f,130f,false)));
         }
         else if (part_funtion == 2.5f)// быстро зависит от далеко 
         {
-            if (left)
+
+            if (k1 == k2)
             {
-                k1 *= -1f;
+                //возрастание в начале дальше прямая линия
+                return cof*((Integrate(0.05f,0f,0f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(-0.025f,3.25f,q2,130f,true))/(Integrate(0.05f,0f,0f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(-0.025f,3.25f,q2,130f,false)));
             }
-            return k1 * 80f / 2f;
+            else if (k1 < k2)
+            {
+                return cof*((Integrate(0.05f,0f,0f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(0.05f,-2f,q2,q3,true)+Integrate(0f,k2,q3,q4,true)+Integrate(-0.025f,3.25f,q4,130f,true))/(Integrate(0.05f,0f,0f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(0.05f,-2f,q2,q3,false)+Integrate(0f,k2,q3,q4,false)+Integrate(-0.025f,3.25f,q4,130f,false)));
+            }
+            else if (k1 > k2)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
+            {
+                return cof*((Integrate(0.05f,0f,0f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(-0.05f,3f,q2,q3,true)+Integrate(0f,k2,q3,q4,true)+Integrate(-0.025f,3.25f,q4,130f,true))/(Integrate(0.05f,0f,0f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(-0.05f,3f,q2,q3,false)+Integrate(0f,k2,q3,q4,false)+Integrate(-0.025f,3.25f,q4,130f,false)));
+            }
         }
-        return rand;
-    }
+        else if (part_funtion == 3f)//медлено зависи от очень близко
+        {
+            return cof*((Integrate(0.05f,0f,0f,20f,true)+Integrate(0f,1f,20f,40f,true)+Integrate(-0.05f,3f,40f,60f,true))/(Integrate(0.05f,0f,0f,20f,false)+Integrate(0f,1f,20f,40f,false)+Integrate(-0.05f,3f,40f,60f,false)));
+        }
+        else if (part_funtion == 3.5f)// быстро зависит от далеко 
+        {
+            if (k1 == k2)
+            {
+                //возрастание в начале дальше прямая линия
+                return cof*((Integrate(0f,k1,0f,q1,true)+Integrate(-0.05f,3f,q1,60f,true))/(Integrate(0f,k1,0f,q1,false)+Integrate(-0.05f,3f,q1,60f,false)));
+            }
+            else if (k1 < k2)
+            {
+                return cof*((Integrate(0f,k1,0f,q1,true)+Integrate(0.05f,0f,q1,q2,true)+Integrate(0f,k2,q2,q3,true)+Integrate(-0.05f,3f,q3,60f,true))/(Integrate(0f,k1,0f,q1,false)+Integrate(0.05f,0f,q1,q2,false)+Integrate(0f,k2,q2,q3,false)+Integrate(-0.05f,3f,q3,60f,false)));
+            }
+            else if (k1 > k2)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
+            {
+                return cof*((Integrate(0f,k1,0f,q1,true)+Integrate(-0.05f,1f,q1,q2,true)+Integrate(0f,k2,q2,q3,true)+Integrate(-0.05f,3f,q3,60f,true))/(Integrate(0f,k1,0f,q1,false)+Integrate(-0.05f,1f,q1,q2,false)+Integrate(0f,k2,q2,q3,false)+Integrate(-0.05f,3f,q3,60f,false)));
+            }
+        }
+        else if (part_funtion == 4f)// быстро зависит от далеко 
+        {
+            return cof*(Integrate(-0.05f,1f,0f,20f,true)/Integrate(-0.05f,1f,0f,20f,false));
+        }
+        return 0f;
+        }
 }
 }

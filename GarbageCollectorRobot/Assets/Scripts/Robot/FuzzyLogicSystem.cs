@@ -1,5 +1,4 @@
 using UnityEngine;
-using System.Collections.Generic;
 
 namespace Fuzzy
 {
@@ -7,38 +6,24 @@ namespace Fuzzy
     {
         [Header("Sensors")]
         public Transform frontSensor;
-        public Transform back1Sensor;
-        public Transform back2Sensor;
-
+        public Transform leftSensor;
+        public Transform rightSensor;
+        
+        [Header("Sensor Settings")]
+        public float sensorLength = 2f;
+        
         [Header("Movement Settings")]
-        public float speed = 3f;
-        public float detectionRadius = 5f;
-        public float obstacleAvoidDistance = 1.5f;
-
-        [Header("Goal / Search")]
-        public bool enableGoalSeeking = true;
-        public float wanderRadius = 2.5f;
-        public float wanderPointReachDistance = 0.25f;
-        public Vector2 wanderRepathTimeRange = new Vector2(1f, 3f);
-        public bool seekTrashBinWhenCarrying = true;
-        public float trashBinRefreshInterval = 0.75f;
-
-        [Header("Trash Seeking")]
-        public bool enableTrashSeeking = true;
-        public float trashDetectDistance = 6f;
-        public float trashMemorySeconds = 1.25f;
-        public float trashMaxChaseDistance = 10f;
-        public bool showTrashDebug = true;
-
-        public bool enableScan = true;
-        public float scanIntervalSeconds = 2f;
-        public float scanDurationSeconds = 0.8f;
-        public float scanRotationSpeedDegPerSec = 540f;
-
+        public float baseSpeed = 3f;
+        public float rotationSpeed = 180f; // Скорость вращения на месте (град/сек)
+        public bool hasTrash = false;
+        
+        [Header("Turn Memory")]
+        public float turnMemoryTime = 0.5f; // Фиксированные 0.5 секунды памяти
+        
         [Header("Smoothing")]
         public float directionSmoothing = 10f;
         public float speedSmoothing = 8f;
-        public float maxAcceleration = 20f;
+        public float rotationSmoothing = 5f;
 
         public LayerMask obstacleLayer;
         public bool showDebug = true;
@@ -48,21 +33,14 @@ namespace Fuzzy
         private Vector2 movementDirection = Vector2.zero;
         private Vector2 smoothedMoveDirection = Vector2.zero;
         private float targetSpeed = 0f;
-        private Vector2 desiredVelocity = Vector2.zero;
-
-        private Inventory inventory;
-        private Types.GType lastGarbageType = Types.GType.None;
-        private TrashBin cachedTargetBin;
-        private float nextBinRefreshTime;
-        private Vector2 currentWanderPoint;
-        private bool hasWanderPoint;
-        private float nextWanderPickTime;
-
-        private KeepGarbage currentTrashTarget;
-        private float lastTrashSeenTime;
-        private float nextScanTime;
-        private bool isScanning;
-        private float scanEndTime;
+        private float targetRotation = 0f; // Целевой угол поворота от нечеткой логики
+        private float currentRotation = 0f; // Текущий угол поворота (сглаженный)
+        
+        // Память поворота
+        private float turnMemoryTimer = 0f;
+        private float rememberedRotation = 0f; // Запомненный угол поворота
+        private bool hasTurnMemory = false;
+        private bool isInTurnMemoryMode = false; // Режим "держим поворот"
 
         void Start()
         {
@@ -79,402 +57,225 @@ namespace Fuzzy
                 manualMove.enabled = false;
             }
 
-            inventory = GetComponent<Inventory>();
             smoothedMoveDirection = Vector2.right;
-            targetSpeed = speed;
-            PickNewWanderPoint();
-
-            nextScanTime = Time.time + Mathf.Max(0.1f, scanIntervalSeconds);
+            targetSpeed = baseSpeed;
         }
 
         void Update()
         {
-            UpdateTrashSeekingAndScanState();
-
-            if (isScanning)
-            {
-                UpdateScanRotationAndDetectTrash();
-                return;
-            }
-
+            // Обновляем таймер памяти
+            UpdateTurnMemory();
+            
             CalculateMovement();
-            SmoothMovementAndSpeed();
-            ApplyRotation();
+            SmoothMovement();
+            ApplyRotationOnSpot(); // Поворачиваем на месте
+            ApplyForwardMovement();
         }
 
-        void FixedUpdate()
+        void UpdateTurnMemory()
         {
-            if (isScanning)
+            if (hasTurnMemory)
             {
-                if (rb != null)
+                turnMemoryTimer -= Time.deltaTime;
+                if (turnMemoryTimer <= 0f)
                 {
-                    rb.velocity = Vector2.MoveTowards(rb.velocity, Vector2.zero, maxAcceleration * Time.fixedDeltaTime);
+                    hasTurnMemory = false;
+                    rememberedRotation = 0f;
+                    isInTurnMemoryMode = false;
                 }
-                return;
-            }
-
-            Vector2 moveDirForPhysics = smoothedMoveDirection;
-
-            if (moveDirForPhysics.magnitude > 0.1f)
-            {
-                desiredVelocity = moveDirForPhysics.normalized * speed;
-            }
-            else
-            {
-                desiredVelocity = Vector2.zero;
-            }
-
-            if (rb != null)
-            {
-                rb.velocity = Vector2.MoveTowards(rb.velocity, desiredVelocity, maxAcceleration * Time.fixedDeltaTime);
-            }
-            else
-            {
-                transform.position += (Vector3)(desiredVelocity * Time.fixedDeltaTime);
             }
         }
 
         void CalculateMovement()
         {
-            Vector2 baseDesiredDirection = GetBaseDesiredDirection();
-
+            // Получаем расстояния от всех датчиков
             float frontDist = CheckObstacleDistance(frontSensor);
-            float leftDist = CheckObstacleDistance(back1Sensor);
-            float rightDist = CheckObstacleDistance(back2Sensor);
-            targetSpeed = fuzzyFunction.Sentr_mass(Mathf.Min(frontDist, leftDist, rightDist));
-
-            float dRight = back1Sensor ? CheckObstacleDistance(back1Sensor) : float.MaxValue;
-            float dLeft = back2Sensor ? CheckObstacleDistance(back2Sensor) : float.MaxValue;
+            float rightDist = rightSensor ? CheckObstacleDistance(rightSensor) : float.MaxValue;
+            float leftDist = leftSensor ? CheckObstacleDistance(leftSensor) : float.MaxValue;
+            
+            // Находим минимальное расстояние для скорости
+            float minDistance = Mathf.Min(frontDist, rightDist, leftDist);
+            targetSpeed = fuzzyFunction.Sentr_mass(minDistance);
+            
+            // ОРИГИНАЛЬНАЯ ЛОГИКА ПОВОРОТА из нечеткой логики
             float dMin = 0.0f;
             bool isLeft = true;
 
-            if (Mathf.Abs(dLeft - dRight) > 0.5f)
+            if (Mathf.Abs(leftDist - rightDist) > 0.8f)
             {
-                dMin = Mathf.Min(dLeft, dRight);
-                isLeft = dLeft <= dRight;
+                dMin = Mathf.Min(leftDist, rightDist);
+                isLeft = leftDist <= rightDist;
             }
             else
             {
-                dMin = Mathf.Min(dLeft, dRight);
+                dMin = Mathf.Min(leftDist, rightDist);
                 isLeft = true;
             }
 
-            float turnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, isLeft, targetSpeed);
-            if (turnAngle > -1001 && turnAngle < -999)
+            // Получаем угол поворота от нечёткой логики
+            float fuzzyTurnAngle = fuzzyFunction.Sentr_mass_rotate(dMin, isLeft, hasTrash);
+            
+            float finalTurnAngle = 0f;
+            
+            // Если есть активная память - используем её
+            if (isInTurnMemoryMode && hasTurnMemory)
             {
-                transform.rotation = Quaternion.Euler(0, 0, 90f);
-            }
-            Debug.Log(dMin);
-            Debug.Log(turnAngle);
-
-            Vector2 forward;
-            if (enableGoalSeeking && baseDesiredDirection.sqrMagnitude > 0.0001f)
-            {
-                forward = baseDesiredDirection.normalized;
+                finalTurnAngle = rememberedRotation;
+                Debug.Log($"Using memory turn: {finalTurnAngle:F1}°, Timer: {turnMemoryTimer:F2}");
             }
             else
             {
-                forward = (smoothedMoveDirection.sqrMagnitude > 0.0001f ? smoothedMoveDirection : Vector2.right).normalized;
+                // Используем угол от нечеткой логики
+                finalTurnAngle = fuzzyTurnAngle;
+                
+                // Если угол значительный - запоминаем его на 0.5 секунды
+                if (Mathf.Abs(fuzzyTurnAngle) > 5f)
+                {
+                    // МГНОВЕННО запоминаем поворот
+                    rememberedRotation = fuzzyTurnAngle;
+                    turnMemoryTimer = turnMemoryTime;
+                    hasTurnMemory = true;
+                    isInTurnMemoryMode = true;
+                    Debug.Log($"Memorized fuzzy turn: {fuzzyTurnAngle:F1}° for {turnMemoryTime}s");
+                }
+                
+                targetRotation = finalTurnAngle;
             }
-            Vector2 turned = (Vector2)(Quaternion.Euler(0f, 0f, turnAngle) * forward);
-
-            if (turned.sqrMagnitude > 0.0001f)
-            {
-                movementDirection = turned.normalized;
-            }
-            else
-            {
-                movementDirection = forward;
-            }
+            
+            Debug.Log($"Distances: F{frontDist:F1}, L{leftDist:F1}, R{rightDist:F1}");
+            Debug.Log($"Fuzzy turn: {fuzzyTurnAngle:F1}°, Final: {finalTurnAngle:F1}°, Speed: {targetSpeed:F1}");
         }
 
-        void SmoothMovementAndSpeed()
+        void SmoothMovement()
         {
             float dt = Time.deltaTime;
-            float dirAlpha = 1f - Mathf.Exp(-Mathf.Max(0.01f, directionSmoothing) * dt);
             float spdAlpha = 1f - Mathf.Exp(-Mathf.Max(0.01f, speedSmoothing) * dt);
-
-            if (movementDirection.sqrMagnitude > 0.0001f)
+            float rotAlpha = 1f - Mathf.Exp(-Mathf.Max(0.01f, rotationSmoothing) * dt);
+            
+            // Сглаживаем скорость
+            baseSpeed = Mathf.Lerp(baseSpeed, targetSpeed, spdAlpha);
+            baseSpeed = Mathf.Max(0f, baseSpeed);
+            
+            // Сглаживаем угол поворота (только если не в режиме памяти)
+            if (!isInTurnMemoryMode)
             {
-                smoothedMoveDirection = Vector2.Lerp(smoothedMoveDirection, movementDirection.normalized, dirAlpha);
+                currentRotation = Mathf.Lerp(currentRotation, targetRotation, rotAlpha);
             }
             else
             {
-                smoothedMoveDirection = Vector2.Lerp(smoothedMoveDirection, Vector2.zero, dirAlpha);
+                // В режиме памяти используем запомненный угол без сглаживания
+                currentRotation = rememberedRotation;
             }
-
-            speed = Mathf.Lerp(speed, targetSpeed, spdAlpha);
-            speed = Mathf.Max(0f, speed);
         }
 
-        void ApplyRotation()
+        void ApplyRotationOnSpot()
         {
-            if (smoothedMoveDirection.magnitude > 0.1f)
+            // Поворачиваем на месте (без движения вперед)
+            if (Mathf.Abs(currentRotation) > 0.1f)
             {
-                float angle = Mathf.Atan2(smoothedMoveDirection.y, smoothedMoveDirection.x) * Mathf.Rad2Deg;
-                transform.rotation = Quaternion.Euler(0, 0, angle - 90f);
+                float rotationThisFrame = currentRotation * rotationSpeed * Time.deltaTime;
+                transform.Rotate(0, 0, -rotationThisFrame); // Поворачиваем вокруг оси Z
+                
+                Debug.Log($"Rotating on spot: {rotationThisFrame:F1}°/s, Total: {currentRotation:F1}°");
             }
         }
 
-        Vector2 GetSensorWorldDirection(Transform sensor)
+        void ApplyForwardMovement()
         {
-            if (sensor == null) return Vector2.zero;
-            Vector2 fromCenter = (Vector2)sensor.position - (Vector2)transform.position;
-            if (fromCenter.sqrMagnitude < 0.0001f) return Vector2.zero;
-            return fromCenter.normalized;
+            // Движемся только вперед (после поворота на месте)
+            Vector2 forward = transform.up; // В 2D вперед обычно это up
+            
+            if (rb != null)
+            {
+                rb.velocity = forward * baseSpeed;
+            }
+            else
+            {
+                transform.position += (Vector3)(forward * baseSpeed * Time.deltaTime);
+            }
         }
 
         float CheckObstacleDistance(Transform sensor)
         {
             if (sensor == null) return float.MaxValue;
-            Vector2 dir = GetSensorWorldDirection(sensor);
+            
+            Vector2 dir = transform.up; // Все датчики смотрят вперед
             if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
 
-            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, obstacleAvoidDistance * 2f, obstacleLayer);
+            float checkDistance = sensorLength;
+            
+            RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, checkDistance, obstacleLayer);
+            
             if (showDebug)
             {
-                Debug.DrawRay(sensor.position, dir * obstacleAvoidDistance * 2f, hit.collider ? Color.red : Color.green);
+                Color rayColor = hit.collider ? Color.red : Color.green;
+                Debug.DrawRay(sensor.position, dir * checkDistance, rayColor);
             }
+            
             return hit.collider ? hit.distance : float.MaxValue;
         }
 
-        private Vector2 GetBaseDesiredDirection()
+        void OnDrawGizmos()
         {
-            if (!enableGoalSeeking)
-            {
-                return Vector2.zero;
-            }
-
-            Types.GType carried = Types.GType.None;
-            if (inventory != null)
-            {
-                carried = inventory.getCell();
-            }
-
-            if (enableTrashSeeking && carried == Types.GType.None && currentTrashTarget != null)
-            {
-                Vector2 toTrash = (Vector2)currentTrashTarget.transform.position - (Vector2)transform.position;
-                return toTrash;
-            }
-
-            if (seekTrashBinWhenCarrying && carried != Types.GType.None)
-            {
-                if (carried != lastGarbageType)
-                {
-                    lastGarbageType = carried;
-                    cachedTargetBin = null;
-                    nextBinRefreshTime = 0f;
-                }
-
-                if (Time.time >= nextBinRefreshTime || cachedTargetBin == null || cachedTargetBin.garbageType != carried)
-                {
-                    cachedTargetBin = FindClosestTrashBin(carried);
-                    nextBinRefreshTime = Time.time + Mathf.Max(0.05f, trashBinRefreshInterval);
-                }
-
-                if (cachedTargetBin != null)
-                {
-                    Vector2 toBin = (Vector2)cachedTargetBin.transform.position - (Vector2)transform.position;
-                    return toBin;
-                }
-            }
-            else
-            {
-                lastGarbageType = Types.GType.None;
-                cachedTargetBin = null;
-            }
-
-            if (!hasWanderPoint || Time.time >= nextWanderPickTime)
-            {
-                PickNewWanderPoint();
-            }
-
-            Vector2 toPoint = currentWanderPoint - (Vector2)transform.position;
-            if (toPoint.magnitude <= Mathf.Max(0.01f, wanderPointReachDistance))
-            {
-                PickNewWanderPoint();
-                toPoint = currentWanderPoint - (Vector2)transform.position;
-            }
-
-            return toPoint;
+            if (!showDebug || !Application.isPlaying) return;
+            
+            DrawSensorGizmo(frontSensor, Color.blue);
+            DrawSensorGizmo(leftSensor, Color.yellow);
+            DrawSensorGizmo(rightSensor, Color.yellow);
+            
+            DrawTurnMemoryGizmo();
         }
 
-        private void PickNewWanderPoint()
+        void DrawSensorGizmo(Transform sensor, Color color)
         {
-            Vector2 center = transform.position;
-            Vector2 offset = Random.insideUnitCircle * Mathf.Max(0.01f, wanderRadius);
-            currentWanderPoint = center + offset;
-            hasWanderPoint = true;
-
-            float minT = Mathf.Max(0.05f, wanderRepathTimeRange.x);
-            float maxT = Mathf.Max(minT, wanderRepathTimeRange.y);
-            nextWanderPickTime = Time.time + Random.Range(minT, maxT);
+            if (sensor == null) return;
+            
+            Gizmos.color = color;
+            Vector2 dir = transform.up;
+            Gizmos.DrawLine(sensor.position, sensor.position + (Vector3)dir * sensorLength);
+            
+            Gizmos.color = Color.white;
+            Gizmos.DrawSphere(sensor.position, 0.05f);
         }
 
-        private TrashBin FindClosestTrashBin(Types.GType type)
+        void DrawTurnMemoryGizmo()
         {
-            TrashBin[] bins = FindObjectsOfType<TrashBin>();
-            TrashBin best = null;
-            float bestDistSq = float.PositiveInfinity;
-            Vector2 pos = transform.position;
-
-            for (int i = 0; i < bins.Length; i++)
+            if (!hasTurnMemory) return;
+            
+            // Рисуем индикатор памяти поворота
+            float memoryStrength = Mathf.Clamp01(turnMemoryTimer / turnMemoryTime);
+            Gizmos.color = Color.Lerp(Color.red, Color.green, memoryStrength);
+            
+            // Дуга, показывающая угол и оставшееся время
+            Vector3 center = transform.position;
+            float radius = 0.8f;
+            
+            // Начало дуги (прямо вперед)
+            Vector3 startDir = transform.up * radius;
+            
+            // Конец дуги (запомненный угол)
+            Vector3 endDir = Quaternion.Euler(0, 0, -rememberedRotation) * transform.up * radius;
+            
+            // Рисуем дугу
+            int segments = 20;
+            float angleStep = rememberedRotation / segments;
+            Vector3 prevPoint = center + startDir;
+            
+            for (int i = 1; i <= segments; i++)
             {
-                TrashBin b = bins[i];
-                if (b == null || b.garbageType != type) continue;
-                float d = ((Vector2)b.transform.position - pos).sqrMagnitude;
-                if (d < bestDistSq)
-                {
-                    bestDistSq = d;
-                    best = b;
-                }
+                float angle = angleStep * i;
+                Vector3 currentDir = Quaternion.Euler(0, 0, -angle) * transform.up * radius;
+                Vector3 currentPoint = center + currentDir;
+                
+                Gizmos.DrawLine(prevPoint, currentPoint);
+                prevPoint = currentPoint;
             }
-
-            return best;
-        }
-
-        private void UpdateTrashSeekingAndScanState()
-        {
-            if (!enableTrashSeeking && !enableScan)
-            {
-                return;
-            }
-
-            Types.GType carried = Types.GType.None;
-            if (inventory != null)
-            {
-                carried = inventory.getCell();
-            }
-
-            if (carried != Types.GType.None)
-            {
-                currentTrashTarget = null;
-                isScanning = false;
-                return;
-            }
-
-            if (currentTrashTarget == null)
-            {
-            }
-            else
-            {
-                float dist = Vector2.Distance(transform.position, currentTrashTarget.transform.position);
-                if (!currentTrashTarget.gameObject.activeInHierarchy || dist > Mathf.Max(0.1f, trashMaxChaseDistance))
-                {
-                    currentTrashTarget = null;
-                }
-            }
-
-            KeepGarbage seen = TryGetTrashInFront();
-            if (seen != null)
-            {
-                currentTrashTarget = seen;
-                lastTrashSeenTime = Time.time;
-                isScanning = false;
-                return;
-            }
-
-            if (currentTrashTarget != null && (Time.time - lastTrashSeenTime) > Mathf.Max(0.05f, trashMemorySeconds))
-                currentTrashTarget = null;
-
-            if (enableScan && currentTrashTarget == null && !isScanning && Time.time >= nextScanTime)
-                StartScan();
-        }
-
-        private void StartScan()
-        {
-            isScanning = true;
-            scanEndTime = Time.time + Mathf.Max(0.05f, scanDurationSeconds);
-            nextScanTime = Time.time + Mathf.Max(0.1f, scanIntervalSeconds);
-        }
-
-        private void UpdateScanRotationAndDetectTrash()
-        {
-            float dt = Time.deltaTime;
-            float dz = scanRotationSpeedDegPerSec * dt;
-            transform.rotation = Quaternion.Euler(0f, 0f, transform.eulerAngles.z + dz);
-
-            KeepGarbage seen = TryGetTrashInFront();
-            if (seen != null)
-            {
-                currentTrashTarget = seen;
-                lastTrashSeenTime = Time.time;
-                isScanning = false;
-                return;
-            }
-
-            if (Time.time >= scanEndTime)
-                isScanning = false;
-        }
-
-        private KeepGarbage TryGetTrashInFront()
-        {
-            Vector2 origin = frontSensor != null ? (Vector2)frontSensor.position : (Vector2)transform.position;
-            Vector2 dir = (Vector2)transform.up;
-            if (dir.sqrMagnitude < 0.0001f) return null;
-
-            ContactFilter2D filter = new ContactFilter2D
-            {
-                useTriggers = true,
-                useLayerMask = false
-            };
-
-            RaycastHit2D[] hits = new RaycastHit2D[16];
-            int count = Physics2D.Raycast(origin, dir, filter, hits, Mathf.Max(0.1f, trashDetectDistance));
-            if (count <= 0)
-            {
-                if (showTrashDebug)
-                {
-                    Debug.DrawRay(origin, dir * trashDetectDistance, new Color(1f, 0.9f, 0.2f, 0.6f));
-                }
-                return null;
-            }
-
-            float nearestObstacle = float.PositiveInfinity;
-            KeepGarbage nearestTrash = null;
-            float nearestTrashDist = float.PositiveInfinity;
-
-            for (int i = 0; i < count; i++)
-            {
-                Collider2D col = hits[i].collider;
-                if (col == null) continue;
-                if (col.transform == transform || col.transform.IsChildOf(transform)) continue;
-
-                float d = hits[i].distance;
-
-                bool isObstacle = ((1 << col.gameObject.layer) & obstacleLayer.value) != 0;
-                if (isObstacle)
-                {
-                    if (d < nearestObstacle) nearestObstacle = d;
-                    continue;
-                }
-
-                if (!col.CompareTag("garbage")) continue;
-
-                if (col.TryGetComponent<KeepGarbage>(out var garbage))
-                {
-                    if (d < nearestTrashDist)
-                    {
-                        nearestTrashDist = d;
-                        nearestTrash = garbage;
-                    }
-                }
-            }
-
-            if (nearestTrash != null && nearestTrashDist < nearestObstacle)
-            {
-                if (showTrashDebug)
-                {
-                    Debug.DrawRay(origin, dir * nearestTrashDist, Color.yellow);
-                }
-                return nearestTrash;
-            }
-
-            if (showTrashDebug)
-            {
-                Debug.DrawRay(origin, dir * trashDetectDistance, new Color(1f, 0.5f, 0.2f, 0.6f));
-            }
-            return null;
+            
+            // Информация
+            #if UNITY_EDITOR
+            UnityEditor.Handles.Label(center + Vector3.up * 1.2f, 
+                $"MEMORY: {rememberedRotation:F1}°\nTime: {turnMemoryTimer:F2}s");
+            #endif
         }
     }
 }

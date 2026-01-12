@@ -182,7 +182,6 @@ public class FuzzyFunction
         }
         else if (part_funtion == 2f)// средне зависит от средне
         {
-            //в ручную центр масс = 3,59375/2,375
             return (Integrate(2f,0,0f,0.5f,true)+Integrate(0f,1f,0.5f,1f,true)+Integrate(-2f,3f,1f,1.25f,true)+Integrate(2f,-2f,1.25f,1.5f,true)+Integrate(0f,1f,1.5f,2.5f,true)+Integrate(-2f,6f,2.5f,3f,true))/(Integrate(2f,0,0f,0.5f,false)+Integrate(0f,1f,0.5f,1f,false)+Integrate(-2f,3f,1f,1.25f,false)+Integrate(2f,-2f,1.25f,1.5f,false)+Integrate(0f,1f,1.5f,2.5f,false)+Integrate(-2f,6f,2.5f,3f,false));
         }
         else if (part_funtion == 2.5f)// быстро зависит от далеко 
@@ -225,7 +224,7 @@ public class FuzzyFunction
     // Поворот по габаритным датчикам (возвращает угол поворота робота, в градусах).
     // В функцию передаётся расстояние с датчика, который БЛИЖЕ к препятствию,
     // и признак: левый датчик или правый (true = левый).
-    public float Sentr_mass_rotate(float d, bool left, float speed)
+    public float Sentr_mass_rotate(float d, bool left, bool trash)
     {
 
 
@@ -233,6 +232,11 @@ public class FuzzyFunction
         float part_funtion = list[2];
         float k1 = list[0] + 0.2f;
         float k2 = list[1];
+        float rand = 0f;
+        if (!trash)
+            {
+                rand = Random.Range(-2f, 10f);
+            }
         if (part_funtion == 1f)// остановка
         {
             k1 = 2f;
@@ -240,7 +244,7 @@ public class FuzzyFunction
             {
                 k1 *= -1f;
             }
-            return k1 * 80f / 2f ;
+            return k1 * 80f / 2f +rand;
         }
         else if (part_funtion == 1.5f)// быстро зависит от далеко 
         {
@@ -249,7 +253,7 @@ public class FuzzyFunction
             {
                 k1 *= -1f;
             }
-            return k1 * 80f / 2f;
+            return k1 * 80f / 2f + rand;
         }
         else if (part_funtion == 2f)// средне зависит от средне
         {
@@ -258,7 +262,7 @@ public class FuzzyFunction
             {
                 k1 *= -1f;
             }
-            return k1 * 80f / 2f;
+            return k1 * 80f / 2f + rand;
         }
         else if (part_funtion == 2.5f)// быстро зависит от далеко 
         {
@@ -266,19 +270,9 @@ public class FuzzyFunction
             {
                 k1 *= -1f;
             }
-            // датчики 45 градусов от переднего
-            // берём левый или правый датчик (тот у которого растояние меньше)
-            // поворачиваем в сторону меньшего по показанию датчика
-            // резкость поворота зависит от кофициента уверености к близко (коффициенты написаны в ифах)
-            // максимальный угол поворота пусть будет 45
-            // угол поворота = коффицен * 45 / 2
             return k1 * 80f / 2f;
         }
-            if (speed < 0.0001f)
-            {
-                return -1000f;
-            }
-            return 0f;
+        return rand;
     }
 }
 }

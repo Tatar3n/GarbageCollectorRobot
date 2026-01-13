@@ -30,6 +30,8 @@ namespace Fuzzy
         public float seekDistanceMax = 2.5f; 
         [Tooltip("Угол, при котором поворот к цели считается максимальным")]
         public float seekAngleForMaxTurn = 90f;
+        [Tooltip("Задержка после исчезновения препятствий перед включением тяги к цели")]
+        public float seekObstacleDelay = 0.1f;
 
         [Header("Turn Memory")]
         public float turnMemoryTime = 0.5f; 
@@ -64,6 +66,9 @@ namespace Fuzzy
         private float lastObstacleTime = 0f;
         private bool shouldClearMemory = false;
 
+        private float lastObstacleSeenTime = 0f;
+        private bool canSeekTrashBin = false;
+
         void Start()
         {
             rb = GetComponent<Rigidbody2D>();
@@ -83,6 +88,8 @@ namespace Fuzzy
 
             smoothedMoveDirection = Vector2.right;
             targetSpeed = baseSpeed;
+            
+            lastObstacleSeenTime = Time.time;
         }
 
         [System.Obsolete]
@@ -90,13 +97,46 @@ namespace Fuzzy
         {
             UpdateTurnMemory();
             UpdateHasTrashAndTarget();
+            UpdateSeekPermission(); 
             CalculateMovement();
             SmoothMovement();
             ApplyRotationOnSpot();
             ApplyForwardMovement();
             
-            // Проверка задержки для выключения памяти
             CheckMemoryClearDelay();
+        }
+
+        void UpdateSeekPermission()
+        {
+            float frontDist = CheckObstacleDistance(frontSensor);
+            float rightDist = rightSensor ? CheckObstacleDistance(rightSensor) : float.MaxValue;
+            float leftDist = leftSensor ? CheckObstacleDistance(leftSensor) : float.MaxValue;
+            
+            bool hasObstacleInFront = frontDist < float.MaxValue;
+            bool hasObstacleOnRight = rightDist < float.MaxValue;
+            bool hasObstacleOnLeft = leftDist < float.MaxValue;
+            bool hasAnyObstacle = hasObstacleInFront || hasObstacleOnRight || hasObstacleOnLeft;
+            
+            if (hasAnyObstacle)
+            {
+                lastObstacleSeenTime = Time.time;
+                canSeekTrashBin = false;
+                Debug.Log($"Obstacle detected - seeking disabled. Last seen: {lastObstacleSeenTime:F2}");
+            }
+            else
+            {
+                float timeSinceLastObstacle = Time.time - lastObstacleSeenTime;
+                if (timeSinceLastObstacle >= seekObstacleDelay)
+                {
+                    canSeekTrashBin = true;
+                    Debug.Log($"No obstacles for {timeSinceLastObstacle:F2}s - seeking enabled");
+                }
+                else
+                {
+                    canSeekTrashBin = false;
+                    Debug.Log($"Waiting for obstacle delay: {seekObstacleDelay - timeSinceLastObstacle:F2}s remaining");
+                }
+            }
         }
 
         void CheckMemoryClearDelay()
@@ -166,19 +206,16 @@ namespace Fuzzy
             float rightDist = rightSensor ? CheckObstacleDistance(rightSensor) : float.MaxValue;
             float leftDist = leftSensor ? CheckObstacleDistance(leftSensor) : float.MaxValue;
             
-            // Проверяем, есть ли препятствия перед датчиками
             bool hasObstacleInFront = frontDist < float.MaxValue;
             bool hasObstacleOnRight = rightDist < float.MaxValue;
             bool hasObstacleOnLeft = leftDist < float.MaxValue;
             bool hasAnyObstacle = hasObstacleInFront || hasObstacleOnRight || hasObstacleOnLeft;
             
-            // Обновляем время последнего обнаружения препятствия
             if (hasAnyObstacle)
             {
                 lastObstacleTime = Time.time;
-                shouldClearMemory = false; // Отменяем очистку, если появилось препятствие
+                shouldClearMemory = false; 
                 
-                // Отменяем корутину очистки, если она запущена
                 if (clearMemoryCoroutine != null)
                 {
                     StopCoroutine(clearMemoryCoroutine);
@@ -187,7 +224,6 @@ namespace Fuzzy
             }
             else if (hasTurnMemory && !shouldClearMemory)
             {
-                // Запускаем отсчет задержки для очистки памяти
                 shouldClearMemory = true;
                 Debug.Log($"No obstacles detected - memory will clear in {memoryClearDelay:F2}s");
             }
@@ -212,7 +248,8 @@ namespace Fuzzy
 
             float seekTurnAngle = 0f;
             bool hasSeek = false;
-            if (hasTrash && enableTrashBinSeeking && currentTargetBin != null)
+            
+            if (hasTrash && enableTrashBinSeeking && currentTargetBin != null && canSeekTrashBin)
             {
                 Vector2 toBin = (Vector2)currentTargetBin.transform.position - (Vector2)transform.position;
                 if (toBin.sqrMagnitude > 0.0001f)
@@ -227,7 +264,13 @@ namespace Fuzzy
 
                     seekTurnAngle = fuzzyFunction.Sentr_mass_rotate(goalD, goalIsLeft, true) * seekTurnMultiplier;
                     hasSeek = true;
+                    
+                    Debug.Log($"Seeking trash bin: angle={signedAngle:F1}°, seekTurn={seekTurnAngle:F1}°, canSeek={canSeekTrashBin}");
                 }
+            }
+            else if (hasTrash && currentTargetBin != null && !canSeekTrashBin)
+            {
+                Debug.Log($"Seeking to trash bin DISABLED - waiting for obstacle delay or no permission");
             }
             
             float finalTurnAngle = 0f;
@@ -262,9 +305,9 @@ namespace Fuzzy
             
             Debug.Log($"Distances: F{frontDist:F1}, L{leftDist:F1}, R{rightDist:F1}");
             Debug.Log($"Obstacle turn: {obstacleTurnAngle:F1}°, Seek: {(hasSeek ? seekTurnAngle.ToString("F1") : "n/a")}°, Final: {finalTurnAngle:F1}°, Speed: {targetSpeed:F1}");
+            Debug.Log($"Seek permission: {canSeekTrashBin}, Time since last obstacle: {Time.time - lastObstacleSeenTime:F2}s");
         }
 
-        // Второй вариант с использованием корутины
         IEnumerator ClearMemoryWithDelay()
         {
             yield return new WaitForSeconds(memoryClearDelay);
@@ -285,7 +328,6 @@ namespace Fuzzy
             rememberedRotation = 0f;
             isInTurnMemoryMode = false;
             
-            // Останавливаем корутину, если она запущена
             if (clearMemoryCoroutine != null)
             {
                 StopCoroutine(clearMemoryCoroutine);
@@ -366,11 +408,53 @@ namespace Fuzzy
             DrawSensorGizmo(leftSensor, Color.yellow);
             DrawSensorGizmo(rightSensor, Color.yellow);        
             DrawTurnMemoryGizmo();
-            if (hasTrash && enableTrashBinSeeking && currentTargetBin != null)
+            DrawSeekStatusGizmo();
+            
+            if (hasTrash && enableTrashBinSeeking && currentTargetBin != null && canSeekTrashBin)
             {
                 Gizmos.color = Color.cyan;
                 Gizmos.DrawLine(transform.position, currentTargetBin.transform.position);
                 Gizmos.DrawSphere(currentTargetBin.transform.position, 0.12f);
+            }
+            else if (hasTrash && currentTargetBin != null)
+            {
+                Gizmos.color = Color.gray;
+                Gizmos.DrawLine(transform.position, currentTargetBin.transform.position);
+                Gizmos.DrawWireSphere(currentTargetBin.transform.position, 0.1f);
+            }
+        }
+
+        void DrawSeekStatusGizmo()
+        {
+            Vector3 center = transform.position + transform.up * 0.3f;
+            
+            if (hasTrash)
+            {
+                if (canSeekTrashBin)
+                {
+                    Gizmos.color = Color.green;
+                    Gizmos.DrawWireSphere(center, 0.15f);
+                    Gizmos.DrawSphere(center, 0.1f);
+                }
+                else
+                {
+                    Gizmos.color = Color.yellow;
+                    Gizmos.DrawWireSphere(center, 0.15f);
+                    
+                    float progress = Mathf.Clamp01((Time.time - lastObstacleSeenTime) / seekObstacleDelay);
+                    if (progress < 1f)
+                    {
+                        Vector3 from = center + Vector3.up * 0.15f;
+                        Vector3 to = center + Quaternion.Euler(0, 0, -360 * progress) * Vector3.up * 0.15f;
+                        Gizmos.DrawLine(center, from);
+                        Gizmos.DrawLine(center, to);
+                    }
+                }
+                
+                #if UNITY_EDITOR
+                string statusText = canSeekTrashBin ? "CAN SEEK" : $"WAIT: {seekObstacleDelay - (Time.time - lastObstacleSeenTime):F1}s";
+                UnityEditor.Handles.Label(center + Vector3.up * 0.3f, statusText);
+                #endif
             }
         }
 

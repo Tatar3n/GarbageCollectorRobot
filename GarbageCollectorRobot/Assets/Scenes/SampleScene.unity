@@ -2549,11 +2549,12 @@ MonoBehaviour:
   rotationSpeed: 1
   hasTrash: 0
   enableTrashBinSeeking: 1
-  seekTurnMultiplier: 0.3
+  seekTurnMultiplier: 1
   binScanInterval: 1
   seekDistanceMin: 0.5
   seekDistanceMax: 2.5
   seekAngleForMaxTurn: 90
+  seekObstacleDelay: 0.05
   turnMemoryTime: 1.05
   memoryClearDelay: 0.05
   directionSmoothing: 10

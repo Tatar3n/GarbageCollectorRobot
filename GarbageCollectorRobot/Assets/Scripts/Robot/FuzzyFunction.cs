@@ -133,40 +133,40 @@ public class FuzzyFunction
         float k1 = 0f;
         float k2 = 0f;
         float part_funtion = 0f;
-        if (d <= 0.3f)
+        if (d <= 0.6f)
         {
             k1=1f;
             part_funtion=1f;
         }
-        else if ((d > 0.3f) && (d <0.5f))
+        else if ((d > 0.6f) && (d <0.8f))
         {
-            k1=-5f*(d-0.3f) + 1f;
-            k2=5f*(d-0.3f);
+            k1=-5f*(d-0.6f) + 1f;
+            k2=5f*(d-0.6f);
             part_funtion=1.5f;
         }
-        else if ((d >= 0.5f) && (d <= 0.9f))
+        else if ((d >= 0.8f) && (d <= 1.2f))
         {
             k1=1f;
             part_funtion=2f;
         }
-        else if ((d > 0.9f) && (d < 1.3f))
+        else if ((d > 1.2f) && (d < 1.6f))
         {
-            k1=-2.5f*(d-0.9f) + 1f;
-            k2=2.5f*(d-0.9f);
+            k1=-2.5f*(d-1.2f) + 1f;
+            k2=2.5f*(d-1.2f);
             part_funtion=2.5f;
         }
-        else if ((d >= 1.3f) && (d <= 1.7f))
+        else if ((d >= 1.6f) && (d <= 2.0f))
         {
             k1=1f;
             part_funtion=3f;
         }
-        else if ((d > 1.7f) && (d < 2.1f))
+        else if ((d > 2.0f) && (d < 2.4f))
         {
-            k1=-2.5f*(d-1.7f) + 1f;
-            k2=2.5f*(d-1.7f);
+            k1=-2.5f*(d-2.0f) + 1f;
+            k2=2.5f*(d-2.0f);
             part_funtion=3.5f;
         }
-        else if (d >= 2.1f)
+        else if ((d >= 2.4f) && (d <= 2.6f))
         {
             k1=1f;
             part_funtion=4f;
@@ -196,19 +196,19 @@ public class FuzzyFunction
             if (k1 == k2)
             {
                 //прямая линия и убывание только в конце правого
-                q1=20f*k1+40f;
+                q1=20f*k2+40f;
             }
             else if (k1 < k2)//есть ещё перемычка в середине между медленно и средне
             {
-                q1=20f*k1+40f;//конец роста
-                q2=40*k1+90;//начало роста
-                q3=40*k2+90;//конец роста
+                q1=20f*k2+40f;//конец роста
+                q2=40*k2+90;//начало роста
+                q3=40*k1+90;//конец роста
             }
             else if (k1 > k2)
             {
-                q1=20f*k1+40f;//конец роста
-                q2=-40f*(k1-1f)+90f;//начало падения
-                q3=-40f*(k2-1f)+90f;//конец падения
+                q1=20f*k2+40f;//конец роста
+                q2=-40f*(k2-1f)+90f;//начало падения
+                q3=-40f*(k1-1f)+90f;//конец падения
             }
         }
         else if (part_funtion == 2.5f)// быстро зависит от далеко 
@@ -216,27 +216,27 @@ public class FuzzyFunction
 
             if (k1 == k2)
             {
-                q1=20*k1;//конец роста
-                q2=-40f*(k2-1f)+90f;//начало падения
+                q1=20*k2;//конец роста
+                q2=-40f*(k1-1f)+90f;//начало падения
             }
             else if (k1 < k2)
             {
                 //в начале
-                q1=20*k1;//конец роста
+                q1=20*k2;//конец роста
                 //в перемычке 
-                q2=20f*k1+40f;//начинает возрастать
-                q3=20f*k2+40f;//конец роста
-                q4=-40f*(k2-1f)+90f;//начало падения
+                q2=20f*k2+40f;//начинает возрастать
+                q3=20f*k1+40f;//конец роста
+                q4=-40f*(k1-1f)+90f;//начало падения
             }
             else if (k1 > k2)
             {
                 //убывает до пересечения левого и правогл
                 //в начале
-                q1=20*k1;//конец роста
+                q1=20*k2;//конец роста
                 //в перемычке 
-                q2=-20f*(k1-1f)+40f;//начало падения
-                q3=-20f*(k2-1f)+40f;//конец падения
-                q4=-40f*(k2-1f)+90f;//начало падения
+                q2=-20f*(k2-1f)+40f;//начало падения
+                q3=-20f*(k1-1f)+40f;//конец падения
+                q4=-40f*(k1-1f)+90f;//начало падения
             }
         }
         else if (part_funtion == 3.5f)// быстро зависит от далеко 
@@ -244,19 +244,19 @@ public class FuzzyFunction
 
             if (k1 == k2)
             {
-                q1=-20f*(k2-1f)+40f;//начало падения
+                q1=-20f*(k1-1f)+40f;//начало падения
             }
             else if (k1 < k2)
             {
-                q1=20*k1;//начало роста
-                q2=20*k2;//конец роста
-                q3=-20f*(k2-1f)+40f;//начало падения
+                q1=20*k2;//начало роста
+                q2=20*k1;//конец роста
+                q3=-20f*(k1-1f)+40f;//начало падения
             }
             else if (k1 > k2)
             {
-                q1=-20*(k1-1f);//начало падения
-                q2=-20*(k2-1f);//конец падения
-                q3=-20f*(k2-1f)+40f;//начало падения
+                q1=-20*(k2-1f);//начало падения
+                q2=-20*(k1-1f);//конец падения
+                q3=-20f*(k1-1f)+40f;//начало падения
             }
         }
         List<float> resultList = new List<float>();
@@ -397,11 +397,11 @@ public class FuzzyFunction
             }
             else if (k1 < k2)
             {
-                return cof*((Integrate(0.05f,-2f,40f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(0.025f,-2.25f,q2,q3,true)+Integrate(0f,k2,q3,150f,true))/(Integrate(0.05f,-2f,40f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(0.025f,-2.25f,q2,q3,false)+Integrate(0f,k2,q3,150f,false)));
+                return cof*((Integrate(0.05f,-2f,40f,q1,true)+Integrate(0f,k2,q1,q2,true)+Integrate(0.025f,-2.25f,q2,q3,true)+Integrate(0f,k1,q3,150f,true))/(Integrate(0.05f,-2f,40f,q1,false)+Integrate(0f,k2,q1,q2,false)+Integrate(0.025f,-2.25f,q2,q3,false)+Integrate(0f,k1,q3,150f,false)));
             }
             else if (k1 > k2)
             {
-                return cof*((Integrate(0.05f,-2f,40f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(-0.025f,3.25f,q2,q3,true)+Integrate(0f,k2,q3,150f,true))/(Integrate(0.05f,-2f,40f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(-0.025f,3.25f,q2,q3,false)+Integrate(0f,k2,q3,150f,false)));
+                return cof*((Integrate(0.05f,-2f,40f,q1,true)+Integrate(0f,k2,q1,q2,true)+Integrate(-0.025f,3.25f,q2,q3,true)+Integrate(0f,k1,q3,150f,true))/(Integrate(0.05f,-2f,40f,q1,false)+Integrate(0f,k2,q1,q2,false)+Integrate(-0.025f,3.25f,q2,q3,false)+Integrate(0f,k1,q3,150f,false)));
             }
         }
         else if (part_funtion == 2f)// средне зависит от средне
@@ -414,15 +414,15 @@ public class FuzzyFunction
             if (k1 == k2)
             {
                 //возрастание в начале дальше прямая линия
-                return cof*((Integrate(0.05f,0f,0f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(-0.025f,3.25f,q2,130f,true))/(Integrate(0.05f,0f,0f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(-0.025f,3.25f,q2,130f,false)));
+                return cof*((Integrate(0.05f,0f,0f,q1,true)+Integrate(0f,k2,q1,q2,true)+Integrate(-0.025f,3.25f,q2,130f,true))/(Integrate(0.05f,0f,0f,q1,false)+Integrate(0f,k2,q1,q2,false)+Integrate(-0.025f,3.25f,q2,130f,false)));
             }
             else if (k1 < k2)
             {
-                return cof*((Integrate(0.05f,0f,0f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(0.05f,-2f,q2,q3,true)+Integrate(0f,k2,q3,q4,true)+Integrate(-0.025f,3.25f,q4,130f,true))/(Integrate(0.05f,0f,0f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(0.05f,-2f,q2,q3,false)+Integrate(0f,k2,q3,q4,false)+Integrate(-0.025f,3.25f,q4,130f,false)));
+                return cof*((Integrate(0.05f,0f,0f,q1,true)+Integrate(0f,k2,q1,q2,true)+Integrate(0.05f,-2f,q2,q3,true)+Integrate(0f,k1,q3,q4,true)+Integrate(-0.025f,3.25f,q4,130f,true))/(Integrate(0.05f,0f,0f,q1,false)+Integrate(0f,k2,q1,q2,false)+Integrate(0.05f,-2f,q2,q3,false)+Integrate(0f,k1,q3,q4,false)+Integrate(-0.025f,3.25f,q4,130f,false)));
             }
             else if (k1 > k2)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
             {
-                return cof*((Integrate(0.05f,0f,0f,q1,true)+Integrate(0f,k1,q1,q2,true)+Integrate(-0.05f,3f,q2,q3,true)+Integrate(0f,k2,q3,q4,true)+Integrate(-0.025f,3.25f,q4,130f,true))/(Integrate(0.05f,0f,0f,q1,false)+Integrate(0f,k1,q1,q2,false)+Integrate(-0.05f,3f,q2,q3,false)+Integrate(0f,k2,q3,q4,false)+Integrate(-0.025f,3.25f,q4,130f,false)));
+                return cof*((Integrate(0.05f,0f,0f,q1,true)+Integrate(0f,k2,q1,q2,true)+Integrate(-0.05f,3f,q2,q3,true)+Integrate(0f,k1,q3,q4,true)+Integrate(-0.025f,3.25f,q4,130f,true))/(Integrate(0.05f,0f,0f,q1,false)+Integrate(0f,k2,q1,q2,false)+Integrate(-0.05f,3f,q2,q3,false)+Integrate(0f,k1,q3,q4,false)+Integrate(-0.025f,3.25f,q4,130f,false)));
             }
         }
         else if (part_funtion == 3f)//медлено зависи от очень близко
@@ -434,15 +434,15 @@ public class FuzzyFunction
             if (k1 == k2)
             {
                 //возрастание в начале дальше прямая линия
-                return cof*((Integrate(0f,k1,0f,q1,true)+Integrate(-0.05f,3f,q1,60f,true))/(Integrate(0f,k1,0f,q1,false)+Integrate(-0.05f,3f,q1,60f,false)));
+                return cof*((Integrate(0f,k2,0f,q1,true)+Integrate(-0.05f,3f,q1,60f,true))/(Integrate(0f,k2,0f,q1,false)+Integrate(-0.05f,3f,q1,60f,false)));
             }
             else if (k1 < k2)
             {
-                return cof*((Integrate(0f,k1,0f,q1,true)+Integrate(0.05f,0f,q1,q2,true)+Integrate(0f,k2,q2,q3,true)+Integrate(-0.05f,3f,q3,60f,true))/(Integrate(0f,k1,0f,q1,false)+Integrate(0.05f,0f,q1,q2,false)+Integrate(0f,k2,q2,q3,false)+Integrate(-0.05f,3f,q3,60f,false)));
+                return cof*((Integrate(0f,k2,0f,q1,true)+Integrate(0.05f,0f,q1,q2,true)+Integrate(0f,k1,q2,q3,true)+Integrate(-0.05f,3f,q3,60f,true))/(Integrate(0f,k2,0f,q1,false)+Integrate(0.05f,0f,q1,q2,false)+Integrate(0f,k1,q2,q3,false)+Integrate(-0.05f,3f,q3,60f,false)));
             }
             else if (k1 > k2)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
             {
-                return cof*((Integrate(0f,k1,0f,q1,true)+Integrate(-0.05f,1f,q1,q2,true)+Integrate(0f,k2,q2,q3,true)+Integrate(-0.05f,3f,q3,60f,true))/(Integrate(0f,k1,0f,q1,false)+Integrate(-0.05f,1f,q1,q2,false)+Integrate(0f,k2,q2,q3,false)+Integrate(-0.05f,3f,q3,60f,false)));
+                return cof*((Integrate(0f,k2,0f,q1,true)+Integrate(-0.05f,1f,q1,q2,true)+Integrate(0f,k1,q2,q3,true)+Integrate(-0.05f,3f,q3,60f,true))/(Integrate(0f,k2,0f,q1,false)+Integrate(-0.05f,1f,q1,q2,false)+Integrate(0f,k1,q2,q3,false)+Integrate(-0.05f,3f,q3,60f,false)));
             }
         }
         else if (part_funtion == 4f)// быстро зависит от далеко 

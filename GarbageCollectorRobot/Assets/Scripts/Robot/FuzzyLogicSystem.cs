@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 namespace Fuzzy
 {
@@ -32,6 +33,7 @@ namespace Fuzzy
 
         [Header("Turn Memory")]
         public float turnMemoryTime = 0.5f; 
+        public float memoryClearDelay = 0.05f;
         
         [Header("Smoothing")]
         public float directionSmoothing = 10f;
@@ -58,6 +60,9 @@ namespace Fuzzy
         private float rememberedRotation = 0f; 
         private bool hasTurnMemory = false;
         private bool isInTurnMemoryMode = false; 
+        private Coroutine clearMemoryCoroutine = null;
+        private float lastObstacleTime = 0f;
+        private bool shouldClearMemory = false;
 
         void Start()
         {
@@ -89,6 +94,18 @@ namespace Fuzzy
             SmoothMovement();
             ApplyRotationOnSpot();
             ApplyForwardMovement();
+            
+            // Проверка задержки для выключения памяти
+            CheckMemoryClearDelay();
+        }
+
+        void CheckMemoryClearDelay()
+        {
+            if (shouldClearMemory && Time.time - lastObstacleTime >= memoryClearDelay)
+            {
+                ForceClearTurnMemory();
+                shouldClearMemory = false;
+            }
         }
 
         [System.Obsolete]
@@ -142,37 +159,53 @@ namespace Fuzzy
             return best;
         }
 
-        void UpdateTurnMemory()
-        {
-            if (hasTurnMemory)
-            {
-                turnMemoryTimer -= Time.deltaTime;
-                if (turnMemoryTimer <= 0f)
-                {
-                    hasTurnMemory = false;
-                    rememberedRotation = 0f;
-                    isInTurnMemoryMode = false;
-                }
-            }
-        }
-
+        [System.Obsolete]
         void CalculateMovement()
         {
             float frontDist = CheckObstacleDistance(frontSensor);
             float rightDist = rightSensor ? CheckObstacleDistance(rightSensor) : float.MaxValue;
             float leftDist = leftSensor ? CheckObstacleDistance(leftSensor) : float.MaxValue;
             
-            float minDistance = Mathf.Min(frontDist, rightDist, leftDist);
+            // Проверяем, есть ли препятствия перед датчиками
+            bool hasObstacleInFront = frontDist < float.MaxValue;
+            bool hasObstacleOnRight = rightDist < float.MaxValue;
+            bool hasObstacleOnLeft = leftDist < float.MaxValue;
+            bool hasAnyObstacle = hasObstacleInFront || hasObstacleOnRight || hasObstacleOnLeft;
+            
+            // Обновляем время последнего обнаружения препятствия
+            if (hasAnyObstacle)
+            {
+                lastObstacleTime = Time.time;
+                shouldClearMemory = false; // Отменяем очистку, если появилось препятствие
+                
+                // Отменяем корутину очистки, если она запущена
+                if (clearMemoryCoroutine != null)
+                {
+                    StopCoroutine(clearMemoryCoroutine);
+                    clearMemoryCoroutine = null;
+                }
+            }
+            else if (hasTurnMemory && !shouldClearMemory)
+            {
+                // Запускаем отсчет задержки для очистки памяти
+                shouldClearMemory = true;
+                Debug.Log($"No obstacles detected - memory will clear in {memoryClearDelay:F2}s");
+            }
+            
+            float minDistance = Mathf.Min(frontDist, rightDist - 0.32f, leftDist - 0.32f);
             targetSpeed = fuzzyFunction.Sentr_mass(minDistance);
             
             float dMin = 0.0f;
             bool isLeft = true;
             float obstacleTurnAngle = 0.0f;
-            if(leftDist - rightDist > 0) {
+            
+            if(leftDist - rightDist > 0) 
+            {
                 obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, isLeft, hasTrash);
                 dMin = rightDist;
             }
-            else {
+            else 
+            {
                 obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(leftDist, !isLeft, hasTrash);
                 dMin = leftDist;
             }
@@ -199,7 +232,7 @@ namespace Fuzzy
             
             float finalTurnAngle = 0f;
             
-            if (isInTurnMemoryMode && hasTurnMemory)
+            if (isInTurnMemoryMode && hasTurnMemory && !shouldClearMemory)
             {
                 finalTurnAngle = rememberedRotation;
                 Debug.Log($"Using memory turn: {finalTurnAngle:F1}°, Timer: {turnMemoryTimer:F2}");
@@ -215,7 +248,7 @@ namespace Fuzzy
                 else
                     finalTurnAngle = obstacleTurnAngle;
                 
-                if (Mathf.Abs(finalTurnAngle) > 5f)
+                if (Mathf.Abs(finalTurnAngle) > 5f && hasAnyObstacle)
                 {
                     rememberedRotation = Mathf.Clamp(finalTurnAngle, -128f, 128f);
                     turnMemoryTimer = turnMemoryTime;
@@ -229,6 +262,50 @@ namespace Fuzzy
             
             Debug.Log($"Distances: F{frontDist:F1}, L{leftDist:F1}, R{rightDist:F1}");
             Debug.Log($"Obstacle turn: {obstacleTurnAngle:F1}°, Seek: {(hasSeek ? seekTurnAngle.ToString("F1") : "n/a")}°, Final: {finalTurnAngle:F1}°, Speed: {targetSpeed:F1}");
+        }
+
+        // Второй вариант с использованием корутины
+        IEnumerator ClearMemoryWithDelay()
+        {
+            yield return new WaitForSeconds(memoryClearDelay);
+            
+            if (hasTurnMemory)
+            {
+                ForceClearTurnMemory();
+                Debug.Log($"Memory cleared after {memoryClearDelay:F2}s delay (no obstacles)");
+            }
+            
+            clearMemoryCoroutine = null;
+        }
+
+        void ForceClearTurnMemory()
+        {
+            hasTurnMemory = false;
+            turnMemoryTimer = 0f;
+            rememberedRotation = 0f;
+            isInTurnMemoryMode = false;
+            
+            // Останавливаем корутину, если она запущена
+            if (clearMemoryCoroutine != null)
+            {
+                StopCoroutine(clearMemoryCoroutine);
+                clearMemoryCoroutine = null;
+            }
+            
+            shouldClearMemory = false;
+            Debug.Log("Turn memory force cleared");
+        }
+
+        void UpdateTurnMemory()
+        {
+            if (hasTurnMemory && !shouldClearMemory)
+            {
+                turnMemoryTimer -= Time.deltaTime;
+                if (turnMemoryTimer <= 0f)
+                {
+                    ForceClearTurnMemory();
+                }
+            }
         }
 
         void SmoothMovement()

@@ -526,7 +526,7 @@ Transform:
   m_GameObject: {fileID: 350677586}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.32, y: 0, z: 0}
+  m_LocalPosition: {x: 0.326, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2209,7 +2209,7 @@ Transform:
   m_GameObject: {fileID: 1630436227}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.32, y: 0, z: 0}
+  m_LocalPosition: {x: -0.33, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2549,12 +2549,13 @@ MonoBehaviour:
   rotationSpeed: 1
   hasTrash: 0
   enableTrashBinSeeking: 1
-  seekTurnMultiplier: 1
+  seekTurnMultiplier: 0.3
   binScanInterval: 1
   seekDistanceMin: 0.5
   seekDistanceMax: 2.5
   seekAngleForMaxTurn: 90
-  turnMemoryTime: 0.7
+  turnMemoryTime: 1.05
+  memoryClearDelay: 0.05
   directionSmoothing: 10
   speedSmoothing: 8
   rotationSmoothing: 5

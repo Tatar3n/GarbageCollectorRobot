@@ -44,6 +44,14 @@ namespace Fuzzy
         public float speedSmoothing = 8f;
         public float rotationSmoothing = 5f;
 
+        [Header("In-Game Sensor Rendering")]
+        [Tooltip("Рисовать лучи датчиков в GameView (через LineRenderer)")]
+        public bool renderSensorsInGame = true;
+        [Tooltip("Толщина линий датчиков")]
+        public float sensorLineWidth = 0.03f;
+        [Tooltip("Sorting Order для линий датчиков (чтобы было видно поверх спрайтов)")]
+        public int sensorLineSortingOrder = 50;
+
         public LayerMask obstacleLayer;
         public bool showDebug = true;
 
@@ -68,6 +76,27 @@ namespace Fuzzy
         private float lastObstacleTime = 0f;
         private bool shouldClearMemory = false;
 
+        private struct SensorReading
+        {
+            public bool hit;
+            public float distance;
+            public Vector2 from;
+            public Vector2 to;
+            public Vector2 dir;
+        }
+
+        private LineRenderer frontLine;
+        private LineRenderer leftLine;
+        private LineRenderer rightLine;
+
+        public float CurrentTurnAngle => currentRotation;
+        public float TargetTurnAngle => targetRotation;
+        public float RememberedTurnAngle => rememberedRotation;
+        public bool HasTurnMemory => hasTurnMemory;
+        public float TurnMemoryTimer => turnMemoryTimer;
+        public float BaseSpeed => baseSpeed;
+        public float TargetSpeed => targetSpeed;
+
         void Start()
         {
             rb = GetComponent<Rigidbody2D>();
@@ -87,6 +116,13 @@ namespace Fuzzy
 
             smoothedMoveDirection = Vector2.right;
             targetSpeed = baseSpeed;
+
+            if (renderSensorsInGame)
+            {
+                frontLine = CreateSensorLineRenderer("SensorLine_Front", Color.green);
+                leftLine = CreateSensorLineRenderer("SensorLine_Left", Color.green);
+                rightLine = CreateSensorLineRenderer("SensorLine_Right", Color.green);
+            }
         }
 
         [System.Obsolete]
@@ -98,6 +134,7 @@ namespace Fuzzy
             SmoothMovement();
             ApplyRotationOnSpot();
             ApplyForwardMovement();
+            UpdateSensorLines();
             
             // Проверка задержки для выключения памяти
             CheckMemoryClearDelay();
@@ -166,14 +203,18 @@ namespace Fuzzy
         [System.Obsolete]
         void CalculateMovement()
         {
-            float frontDist = CheckObstacleDistance(frontSensor);
-            float rightDist = rightSensor ? CheckObstacleDistance(rightSensor) : float.MaxValue;
-            float leftDist = leftSensor ? CheckObstacleDistance(leftSensor) : float.MaxValue;
+            SensorReading front = GetSensorReading(frontSensor);
+            SensorReading right = rightSensor ? GetSensorReading(rightSensor) : default;
+            SensorReading left = leftSensor ? GetSensorReading(leftSensor) : default;
+
+            float frontDist = front.distance;
+            float rightDist = rightSensor ? right.distance : float.MaxValue;
+            float leftDist = leftSensor ? left.distance : float.MaxValue;
             
             // Проверяем, есть ли препятствия перед датчиками
-            bool hasObstacleInFront = frontDist < float.MaxValue;
-            bool hasObstacleOnRight = rightDist < float.MaxValue;
-            bool hasObstacleOnLeft = leftDist < float.MaxValue;
+            bool hasObstacleInFront = front.hit;
+            bool hasObstacleOnRight = rightSensor && right.hit;
+            bool hasObstacleOnLeft = leftSensor && left.hit;
             bool hasAnyObstacle = hasObstacleInFront || hasObstacleOnRight || hasObstacleOnLeft;
             
             // Обновляем время последнего обнаружения препятствия
@@ -361,6 +402,102 @@ namespace Fuzzy
                 Debug.DrawRay(sensor.position, dir * checkDistance, rayColor);
             } 
             return hit.collider ? hit.distance : float.MaxValue;
+        }
+
+        private SensorReading GetSensorReading(Transform sensor)
+        {
+            SensorReading r = default;
+            if (sensor == null)
+            {
+                r.hit = false;
+                r.distance = float.MaxValue;
+                return r;
+            }
+
+            Vector2 dir = transform.up;
+            if (sensor == leftSensor)
+                dir = Quaternion.Euler(0, 0, leftSensorAngle) * dir;
+            else if (sensor == rightSensor)
+                dir = Quaternion.Euler(0, 0, rightSensorAngle) * dir;
+
+            if (dir.sqrMagnitude < 0.0001f)
+            {
+                r.hit = false;
+                r.distance = float.MaxValue;
+                return r;
+            }
+
+            float checkDistance = sensorLength;
+            Vector2 from = sensor.position;
+            RaycastHit2D hit = Physics2D.Raycast(from, dir, checkDistance, obstacleLayer);
+
+            r.hit = hit.collider != null;
+            r.distance = r.hit ? hit.distance : float.MaxValue;
+            r.from = from;
+            r.dir = dir;
+            r.to = r.hit ? hit.point : (from + dir * checkDistance);
+
+            // Оставляем старый debug (Scene view) без изменений по поведению.
+            if (showDebug)
+            {
+                Color rayColor = r.hit ? Color.red : Color.green;
+                Debug.DrawRay(from, dir * checkDistance, rayColor);
+            }
+
+            return r;
+        }
+
+        private LineRenderer CreateSensorLineRenderer(string name, Color color)
+        {
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(transform, worldPositionStays: false);
+            go.transform.localPosition = Vector3.zero;
+            go.transform.localRotation = Quaternion.identity;
+
+            LineRenderer lr = go.AddComponent<LineRenderer>();
+            lr.useWorldSpace = true;
+            lr.positionCount = 2;
+            lr.startWidth = sensorLineWidth;
+            lr.endWidth = sensorLineWidth;
+            lr.startColor = color;
+            lr.endColor = color;
+            lr.sortingOrder = sensorLineSortingOrder;
+            lr.numCapVertices = 2;
+            lr.numCornerVertices = 2;
+            lr.material = new Material(Shader.Find("Sprites/Default"));
+            lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            lr.receiveShadows = false;
+            return lr;
+        }
+
+        private void UpdateSensorLines()
+        {
+            if (!renderSensorsInGame) return;
+
+            UpdateSensorLine(frontLine, GetSensorReading(frontSensor));
+            UpdateSensorLine(leftLine, GetSensorReading(leftSensor));
+            UpdateSensorLine(rightLine, GetSensorReading(rightSensor));
+        }
+
+        private void UpdateSensorLine(LineRenderer lr, SensorReading r)
+        {
+            if (lr == null) return;
+            // sensor == null case: hide line (from/to not set in that branch)
+            if (!r.hit && r.distance == float.MaxValue && r.from == Vector2.zero && r.to == Vector2.zero)
+            {
+                lr.enabled = false;
+                return;
+            }
+
+            lr.enabled = true;
+            lr.startWidth = sensorLineWidth;
+            lr.endWidth = sensorLineWidth;
+
+            Color c = r.hit ? Color.red : Color.green;
+            lr.startColor = c;
+            lr.endColor = c;
+            lr.SetPosition(0, r.from);
+            lr.SetPosition(1, r.to);
         }
 
         void OnDrawGizmos()

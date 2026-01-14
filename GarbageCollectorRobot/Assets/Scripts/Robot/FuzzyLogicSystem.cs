@@ -136,7 +136,6 @@ namespace Fuzzy
             ApplyForwardMovement();
             UpdateSensorLines();
             
-            // Проверка задержки для выключения памяти
             CheckMemoryClearDelay();
         }
 
@@ -211,17 +210,15 @@ namespace Fuzzy
             float rightDist = rightSensor ? right.distance : float.MaxValue;
             float leftDist = leftSensor ? left.distance : float.MaxValue;
             
-            // Проверяем, есть ли препятствия перед датчиками
             bool hasObstacleInFront = front.hit;
             bool hasObstacleOnRight = rightSensor && right.hit;
             bool hasObstacleOnLeft = leftSensor && left.hit;
             bool hasAnyObstacle = hasObstacleInFront || hasObstacleOnRight || hasObstacleOnLeft;
             
-            // Обновляем время последнего обнаружения препятствия
             if (hasAnyObstacle)
             {
                 lastObstacleTime = Time.time;
-                shouldClearMemory = false; // Отменяем очистку, если появилось препятствие
+                shouldClearMemory = false; 
                 
                 if (clearMemoryCoroutine != null)
                 {
@@ -318,7 +315,6 @@ namespace Fuzzy
             rememberedRotation = 0f;
             isInTurnMemoryMode = false;
             
-            // Останавливаем корутину, если она запущена
             if (clearMemoryCoroutine != null)
             {
                 StopCoroutine(clearMemoryCoroutine);
@@ -382,7 +378,6 @@ namespace Fuzzy
             if (sensor == null) return float.MaxValue;    
             Vector2 dir = transform.up; 
             
-            // Определяем угол датчика в зависимости от того, какой это датчик
             if (sensor == leftSensor)
             {
                 dir = Quaternion.Euler(0, 0, leftSensorAngle) * dir;
@@ -391,7 +386,6 @@ namespace Fuzzy
             {
                 dir = Quaternion.Euler(0, 0, rightSensorAngle) * dir;
             }
-            // frontSensor остается без изменений
             
             if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
             float checkDistance = sensorLength; 
@@ -437,7 +431,6 @@ namespace Fuzzy
             r.dir = dir;
             r.to = r.hit ? hit.point : (from + dir * checkDistance);
 
-            // Оставляем старый debug (Scene view) без изменений по поведению.
             if (showDebug)
             {
                 Color rayColor = r.hit ? Color.red : Color.green;
@@ -482,7 +475,6 @@ namespace Fuzzy
         private void UpdateSensorLine(LineRenderer lr, SensorReading r)
         {
             if (lr == null) return;
-            // sensor == null case: hide line (from/to not set in that branch)
             if (!r.hit && r.distance == float.MaxValue && r.from == Vector2.zero && r.to == Vector2.zero)
             {
                 lr.enabled = false;
@@ -521,7 +513,6 @@ namespace Fuzzy
             Gizmos.color = color;
             Vector2 dir = transform.up;
             
-            // Определяем угол датчика для визуализации
             if (sensor == leftSensor)
             {
                 dir = Quaternion.Euler(0, 0, leftSensorAngle) * dir;

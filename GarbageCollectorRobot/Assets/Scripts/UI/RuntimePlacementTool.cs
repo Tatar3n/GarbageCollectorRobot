@@ -91,16 +91,16 @@ public class RuntimePlacementTool : MonoBehaviour
 
         GUILayout.BeginArea(uiRect, GUI.skin.window);
         GUILayout.BeginHorizontal();
-        GUILayout.Label("Placement UI");
+        GUILayout.Label("Для расстановки");
         GUILayout.FlexibleSpace();
-        if (GUILayout.Button(uiCollapsed ? "Expand" : "Collapse", GUILayout.Width(80)))
+        if (GUILayout.Button(uiCollapsed ? "Развернуть" : "Свернуть", GUILayout.Width(80)))
         {
             uiCollapsed = !uiCollapsed;
         }
         GUILayout.EndHorizontal();
 
-        placementEnabled = GUILayout.Toggle(placementEnabled, "Enable placing (toggle: P)");
-        GUILayout.Label("Collapse window (toggle: O)");
+        placementEnabled = GUILayout.Toggle(placementEnabled, "Включить размещение (P)");
+        GUILayout.Label("Свернуть окно (O)");
 
         if (uiCollapsed)
         {
@@ -113,25 +113,25 @@ public class RuntimePlacementTool : MonoBehaviour
 
         if (mode == PlacementMode.Obstacles)
         {
-            GUILayout.Label("Obstacle prefab:");
+            GUILayout.Label("Префаб препятсвия:");
             selectedObstacleIndex = GUILayout.SelectionGrid(selectedObstacleIndex, obstacleLabels, 1);
         }
         else if (mode == PlacementMode.Garbage)
         {
-            GUILayout.Label("Garbage color:");
+            GUILayout.Label("Цвет мусора:");
             int sel = GUILayout.Toolbar(TypeToIndex(selectedGarbageType), new[] { "Red", "Blue", "Yellow" });
             selectedGarbageType = IndexToType(sel);
         }
         else if (mode == PlacementMode.TrashBins)
         {
-            GUILayout.Label("Trashbin type:");
+            GUILayout.Label("Тим мусорки:");
             int sel = GUILayout.Toolbar(TypeToIndex(selectedTrashBinType), new[] { "Red", "Blue", "Yellow" });
             selectedTrashBinType = IndexToType(sel);
         }
         else
         {
-            GUILayout.Label("Delete mode:");
-            GUILayout.Label("Left click in world: delete garbage/obstacles (not walls).");
+            GUILayout.Label("Удаление:");
+            GUILayout.Label("Левый клик для удаления");
         }
 
         GUILayout.Space(8);
@@ -150,7 +150,7 @@ public class RuntimePlacementTool : MonoBehaviour
         }
 
         if (mode != PlacementMode.Delete)
-            GUILayout.Label("Left click in world: place");
+            GUILayout.Label("Левый клик, чтобы поставить");
         GUILayout.EndArea();
     }
 
@@ -202,7 +202,6 @@ public class RuntimePlacementTool : MonoBehaviour
         Collider2D col = Physics2D.OverlapPoint(world);
         if (col == null) return;
 
-        // Garbage
         KeepGarbage keep = col.GetComponentInParent<KeepGarbage>();
         if (keep != null)
         {
@@ -210,7 +209,6 @@ public class RuntimePlacementTool : MonoBehaviour
             return;
         }
 
-        // Obstacles (but not walls) — obstacles in this project carry DeathObject.
         DeathObject death = col.GetComponentInParent<DeathObject>();
         if (death != null)
         {

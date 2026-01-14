@@ -47,7 +47,7 @@ namespace UI
             Rect rect = new Rect(x, y, size.x, size.y);
 
             GUILayout.BeginArea(rect, GUI.skin.window);
-            GUILayout.Label("Robot status (toggle: H)");
+            GUILayout.Label("Вкл/выкл (H)");
 
             if (robot == null)
             {
@@ -62,10 +62,10 @@ namespace UI
             string memState = robot.HasTurnMemory ? $"ON ({robot.TurnMemoryTimer:F2}s)" : "OFF";
             Types.GType cell = inventory != null ? inventory.getCell() : Types.GType.None;
 
-            GUILayout.Label($"Speed: {speed:F2}");
-            GUILayout.Label($"Angle: {angle:F1}°");
-            GUILayout.Label($"Memory angle: {memAngle:F1}°   [{memState}]");
-            GUILayout.Label($"Inventory: {cell}");
+            GUILayout.Label($"Скорость: {speed:F2}");
+            GUILayout.Label($"Актуальный угол: {angle:F1}°");
+            GUILayout.Label($"Угол в памяти: {memAngle:F1}°   [{memState}]");
+            GUILayout.Label($"Инвентарь: {cell}");
 
             GUILayout.EndArea();
         }
@@ -80,7 +80,7 @@ public static class RobotStatusHUDBootstrap
         if (Object.FindObjectOfType<UI.RobotStatusHUD>() != null)
             return;
 
-        GameObject go = new GameObject("RobotStatusHUD");
+        GameObject go = new GameObject("ЮИ");
         go.AddComponent<UI.RobotStatusHUD>();
     }
 }

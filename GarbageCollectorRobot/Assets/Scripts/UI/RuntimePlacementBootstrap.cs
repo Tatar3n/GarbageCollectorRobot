@@ -10,7 +10,7 @@ public static class RuntimePlacementBootstrap
             return;
         }
 
-        GameObject go = new GameObject("RuntimePlacementTool");
+        GameObject go = new GameObject("Расстановка");
         go.AddComponent<RuntimePlacementTool>();
     }
 }

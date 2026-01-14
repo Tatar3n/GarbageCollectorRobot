@@ -12,6 +12,10 @@ namespace Fuzzy
         
         [Header("Sensor Settings")]
         public float sensorLength = 2f;
+        [Tooltip("Угол поворота левого датчика")]
+        public float leftSensorAngle = 45f;
+        [Tooltip("Угол поворота правого датчика")]
+        public float rightSensorAngle = -45f;
         
         [Header("Movement Settings")]
         public float baseSpeed = 3f;
@@ -178,7 +182,6 @@ namespace Fuzzy
                 lastObstacleTime = Time.time;
                 shouldClearMemory = false; // Отменяем очистку, если появилось препятствие
                 
-                // Отменяем корутину очистки, если она запущена
                 if (clearMemoryCoroutine != null)
                 {
                     StopCoroutine(clearMemoryCoroutine);
@@ -187,7 +190,6 @@ namespace Fuzzy
             }
             else if (hasTurnMemory && !shouldClearMemory)
             {
-                // Запускаем отсчет задержки для очистки памяти
                 shouldClearMemory = true;
                 Debug.Log($"No obstacles detected - memory will clear in {memoryClearDelay:F2}s");
             }
@@ -256,26 +258,16 @@ namespace Fuzzy
                     isInTurnMemoryMode = true;
                     Debug.Log($"Memorized CLAMPED turn: {rememberedRotation:F1}° for {turnMemoryTime}s");
                 }
-                
-                targetRotation = finalTurnAngle;
+                if(targetRotation < 0.01f && targetSpeed < 0.01f) {
+                    targetRotation = 180f;
+                    targetSpeed = 0.01f;
+                }
+                else
+                    targetRotation = finalTurnAngle;
             }
             
             Debug.Log($"Distances: F{frontDist:F1}, L{leftDist:F1}, R{rightDist:F1}");
             Debug.Log($"Obstacle turn: {obstacleTurnAngle:F1}°, Seek: {(hasSeek ? seekTurnAngle.ToString("F1") : "n/a")}°, Final: {finalTurnAngle:F1}°, Speed: {targetSpeed:F1}");
-        }
-
-        // Второй вариант с использованием корутины
-        IEnumerator ClearMemoryWithDelay()
-        {
-            yield return new WaitForSeconds(memoryClearDelay);
-            
-            if (hasTurnMemory)
-            {
-                ForceClearTurnMemory();
-                Debug.Log($"Memory cleared after {memoryClearDelay:F2}s delay (no obstacles)");
-            }
-            
-            clearMemoryCoroutine = null;
         }
 
         void ForceClearTurnMemory()
@@ -348,6 +340,18 @@ namespace Fuzzy
         {
             if (sensor == null) return float.MaxValue;    
             Vector2 dir = transform.up; 
+            
+            // Определяем угол датчика в зависимости от того, какой это датчик
+            if (sensor == leftSensor)
+            {
+                dir = Quaternion.Euler(0, 0, leftSensorAngle) * dir;
+            }
+            else if (sensor == rightSensor)
+            {
+                dir = Quaternion.Euler(0, 0, rightSensorAngle) * dir;
+            }
+            // frontSensor остается без изменений
+            
             if (dir.sqrMagnitude < 0.0001f) return float.MaxValue;
             float checkDistance = sensorLength; 
             RaycastHit2D hit = Physics2D.Raycast(sensor.position, dir, checkDistance, obstacleLayer);  
@@ -379,6 +383,17 @@ namespace Fuzzy
             if (sensor == null) return;           
             Gizmos.color = color;
             Vector2 dir = transform.up;
+            
+            // Определяем угол датчика для визуализации
+            if (sensor == leftSensor)
+            {
+                dir = Quaternion.Euler(0, 0, leftSensorAngle) * dir;
+            }
+            else if (sensor == rightSensor)
+            {
+                dir = Quaternion.Euler(0, 0, rightSensorAngle) * dir;
+            }
+            
             Gizmos.DrawLine(sensor.position, sensor.position + (Vector3)dir * sensorLength);         
             Gizmos.color = Color.white;
             Gizmos.DrawSphere(sensor.position, 0.05f);

@@ -78,7 +78,7 @@ SpriteRenderer:
   m_SortingLayer: 0
   m_SortingOrder: 1
   m_Sprite: {fileID: 3003430139365842779, guid: c61036880d01c304d9186a987e4040a7, type: 3}
-  m_Color: {r: 1, g: 0, b: 0, a: 1}
+  m_Color: {r: 1, g: 0.25, b: 0.25, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
@@ -101,6 +101,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   garbageType: 0
+  spriteRenderer: {fileID: 8029945259325363970}
   spawnPrefab: {fileID: 4140107601773409443, guid: edb82abb3369633418a000b6b6f802b5, type: 3}
   spawnAreaMin: {x: -9, y: -4}
   spawnAreaMax: {x: 4, y: 4}

@@ -291,7 +291,7 @@ namespace Fuzzy
                 if (Mathf.Abs(finalTurnAngle) > 5f && hasAnyObstacle)
                 {
                     rememberedRotation = Mathf.Clamp(finalTurnAngle, -128f, 128f);
-                    turnMemoryTimer = turnMemoryTime;
+                    turnMemoryTimer = turnMemoryTime + Random.Range(0f, 0.1f);
                     hasTurnMemory = true;
                     isInTurnMemoryMode = true;
                     Debug.Log($"Memorized CLAMPED turn: {rememberedRotation:F1}° for {turnMemoryTime}s");

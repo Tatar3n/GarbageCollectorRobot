@@ -84,40 +84,40 @@ public class FuzzyFunction
         float k1 = 0f;
         float k2 = 0f;
         float part_funtion = 0f;
-        if (d <= 0.7f)
+        if (d <= 0.6f)
         {
             k1=1f;
             part_funtion=1f;
         }
-        else if ((d > 0.7f) && (d <0.9f))
+        else if ((d > 0.6f) && (d <0.8f))
         {
-            k1=-5f*(d-0.7f) + 1f;
-            k2=5f*(d-0.7f);
+            k1=-5f*(d-0.6f) + 1f;
+            k2=5f*(d-0.6f);
             part_funtion=1.5f;
         }
-        else if ((d >= 0.9f) && (d <= 1.3f))
+        else if ((d >= 0.8f) && (d <= 1.2f))
         {
             k1=1f;
             part_funtion=2f;
         }
-        else if ((d > 1.3f) && (d < 1.7f))
+        else if ((d > 1.2f) && (d < 1.6f))
         {
-            k1=-2.5f*(d-1.3f) + 1f;
-            k2=2.5f*(d-1.3f);
+            k1=-2.5f*(d-1.2f) + 1f;
+            k2=2.5f*(d-1.2f);
             part_funtion=2.5f;
         }
-        else if ((d >= 1.7f) && (d <= 2.1f))
+        else if ((d >= 1.6f) && (d <= 2.0f))
         {
             k1=1f;
             part_funtion=3f;
         }
-        else if ((d > 2.1f) && (d < 2.5f))
+        else if ((d > 2.0f) && (d < 2.4f))
         {
-            k1=-2.5f*(d-2.1f) + 1f;
-            k2=2.5f*(d-2.1f);
+            k1=-2.5f*(d-2.0f) + 1f;
+            k2=2.5f*(d-2.0f);
             part_funtion=3.5f;
         }
-        else if (d >= 2.5f)
+        else if (d >= 2.4f)
         {
             k1=1f;
             part_funtion=4f;

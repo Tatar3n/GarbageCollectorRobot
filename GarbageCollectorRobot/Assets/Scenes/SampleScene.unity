@@ -441,7 +441,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4043445497276778520, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 4.49
+      value: 4.95
       objectReference: {fileID: 0}
     - target: {fileID: 4043445497276778520, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_LocalPosition.z
@@ -485,15 +485,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8029945259325363970, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_Color.b
-      value: 0.086908154
+      value: 0.2
       objectReference: {fileID: 0}
     - target: {fileID: 8029945259325363970, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_Color.g
-      value: 0.7345981
+      value: 0.9
       objectReference: {fileID: 0}
     - target: {fileID: 8029945259325363970, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_Color.r
-      value: 0.8773585
+      value: 1
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -2545,6 +2545,8 @@ MonoBehaviour:
   leftSensor: {fileID: 1630436228}
   rightSensor: {fileID: 350677587}
   sensorLength: 3
+  leftSensorAngle: 9
+  rightSensorAngle: -9
   baseSpeed: 3
   rotationSpeed: 1
   hasTrash: 0
@@ -2559,6 +2561,9 @@ MonoBehaviour:
   directionSmoothing: 10
   speedSmoothing: 8
   rotationSmoothing: 5
+  renderSensorsInGame: 1
+  sensorLineWidth: 0.03
+  sensorLineSortingOrder: 50
   obstacleLayer:
     serializedVersion: 2
     m_Bits: 1024
@@ -2716,7 +2721,7 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 4043445497276778520, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -10.49
+      value: -10.87
       objectReference: {fileID: 0}
     - target: {fileID: 4043445497276778520, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_LocalPosition.y
@@ -2764,15 +2769,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8029945259325363970, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_Color.b
-      value: 0.8301887
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8029945259325363970, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_Color.g
-      value: 0.019579919
+      value: 0.55
       objectReference: {fileID: 0}
     - target: {fileID: 8029945259325363970, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_Color.r
-      value: 0.021338623
+      value: 0.25
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -2850,7 +2855,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4043445497276778520, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_LocalPosition.y
-      value: -4.72
+      value: -5.14
       objectReference: {fileID: 0}
     - target: {fileID: 4043445497276778520, guid: 7ff1ec3a775bef14d8fe85fc919dcc7d, type: 3}
       propertyPath: m_LocalPosition.z

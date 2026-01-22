@@ -200,76 +200,83 @@ namespace Fuzzy
         }
 
         [System.Obsolete]
-        void CalculateMovement()
+    void CalculateMovement()
+    {
+        SensorReading front = GetSensorReading(frontSensor);
+        SensorReading right = rightSensor ? GetSensorReading(rightSensor) : default;
+        SensorReading left = leftSensor ? GetSensorReading(leftSensor) : default;
+
+        float frontDist = front.distance;
+        float rightDist = rightSensor ? right.distance : float.MaxValue;
+        float leftDist = leftSensor ? left.distance : float.MaxValue;
+        
+        bool hasObstacleInFront = front.hit;
+        bool hasObstacleOnRight = rightSensor && right.hit;
+        bool hasObstacleOnLeft = leftSensor && left.hit;
+        bool hasAnyObstacle = hasObstacleInFront || hasObstacleOnRight || hasObstacleOnLeft;
+        
+        if (hasAnyObstacle)
         {
-            SensorReading front = GetSensorReading(frontSensor);
-            SensorReading right = rightSensor ? GetSensorReading(rightSensor) : default;
-            SensorReading left = leftSensor ? GetSensorReading(leftSensor) : default;
-
-            float frontDist = front.distance;
-            float rightDist = rightSensor ? right.distance : float.MaxValue;
-            float leftDist = leftSensor ? left.distance : float.MaxValue;
+            lastObstacleTime = Time.time;
+            shouldClearMemory = false;
             
-            bool hasObstacleInFront = front.hit;
-            bool hasObstacleOnRight = rightSensor && right.hit;
-            bool hasObstacleOnLeft = leftSensor && left.hit;
-            bool hasAnyObstacle = hasObstacleInFront || hasObstacleOnRight || hasObstacleOnLeft;
-            
-            if (hasAnyObstacle)
+            if (clearMemoryCoroutine != null)
             {
-                lastObstacleTime = Time.time;
-                shouldClearMemory = false; 
+                StopCoroutine(clearMemoryCoroutine);
+                clearMemoryCoroutine = null;
+            }
+        }
+        else if (hasTurnMemory && !shouldClearMemory)
+        {
+            shouldClearMemory = true;
+            Debug.Log($"No obstacles detected - memory will clear in {memoryClearDelay:F2}s");
+        }
+        
+        float minDistance = Mathf.Min(frontDist, rightDist - 0.32f, leftDist - 0.32f);
+        targetSpeed = fuzzyFunction.Sentr_mass(minDistance);
+        
+        float dMin = 0.0f;
+        bool isLeft = true;
+        float obstacleTurnAngle = 0.0f;
+        
+        obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, leftDist, 0);
+        
+        float seekTurnAngle = 0f;
+        bool hasSeek = false;
+        
+        if (hasTrash && enableTrashBinSeeking && currentTargetBin != null)
+        {
+            Vector2 toBin = (Vector2)currentTargetBin.transform.position - (Vector2)transform.position;
+            if (toBin.sqrMagnitude > 0.0001f)
+            {
+                Vector2 desiredDir = toBin.normalized;
+                Vector2 forward = transform.up;
+                float signedAngle = Vector2.SignedAngle(forward, desiredDir);
+                float absAngle = Mathf.Abs(signedAngle);
                 
-                if (clearMemoryCoroutine != null)
-                {
-                    StopCoroutine(clearMemoryCoroutine);
-                    clearMemoryCoroutine = null;
-                }
+                seekTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, leftDist, signedAngle);
+                hasSeek = true;
             }
-            else if (hasTurnMemory && !shouldClearMemory)
+        }
+        
+        if (hasTrash && enableTrashBinSeeking && currentTargetBin != null)
+        {
+            if (hasSeek)
             {
-                shouldClearMemory = true;
-                Debug.Log($"No obstacles detected - memory will clear in {memoryClearDelay:F2}s");
+                float obstacleProximity = 1f - Mathf.InverseLerp(0.7f, 2.5f, Mathf.Min(dMin, 2.5f));
+                obstacleProximity = Mathf.Clamp01(obstacleProximity);
+                targetRotation = Mathf.Lerp(seekTurnAngle, obstacleTurnAngle, obstacleProximity);
             }
+            else
+                targetRotation = obstacleTurnAngle;
             
-            float minDistance = Mathf.Min(frontDist, rightDist - 0.32f, leftDist - 0.32f);
-            targetSpeed = fuzzyFunction.Sentr_mass(minDistance);
-            
-            float dMin = 0.0f;
-            bool isLeft = true;
-            float obstacleTurnAngle = 0.0f;
-            
-            if(leftDist - rightDist > 0) 
-            {
-                obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, isLeft, hasTrash);
-                dMin = rightDist;
-            }
-            else 
-            {
-                obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(leftDist, !isLeft, hasTrash);
-                dMin = leftDist;
-            }
-
-            float seekTurnAngle = 0f;
-            bool hasSeek = false;
-            if (hasTrash && enableTrashBinSeeking && currentTargetBin != null)
-            {
-                Vector2 toBin = (Vector2)currentTargetBin.transform.position - (Vector2)transform.position;
-                if (toBin.sqrMagnitude > 0.0001f)
-                {
-                    Vector2 desiredDir = toBin.normalized;
-                    Vector2 forward = transform.up;
-                    float signedAngle = Vector2.SignedAngle(forward, desiredDir);
-                    float absAngle = Mathf.Abs(signedAngle);
-                    bool goalIsLeft = signedAngle > 0f;
-                    float t = Mathf.Clamp01(absAngle / Mathf.Max(1f, seekAngleForMaxTurn));
-                    float goalD = Mathf.Lerp(seekDistanceMax, seekDistanceMin, t);
-
-                    seekTurnAngle = fuzzyFunction.Sentr_mass_rotate(goalD, goalIsLeft, true) * seekTurnMultiplier;
-                    hasSeek = true;
-                }
-            }
-            
+            hasTurnMemory = false;
+            isInTurnMemoryMode = false;
+            rememberedRotation = 0f;
+            turnMemoryTimer = 0f;
+        }
+        else
+        {
             float finalTurnAngle = 0f;
             
             if (isInTurnMemoryMode && hasTurnMemory && !shouldClearMemory)
@@ -279,14 +286,7 @@ namespace Fuzzy
             }
             else
             {
-                if (hasSeek)
-                {
-                    float obstacleProximity = 1f - Mathf.InverseLerp(0.7f, 2.5f, Mathf.Min(dMin, 2.5f));
-                    obstacleProximity = Mathf.Clamp01(obstacleProximity);
-                    finalTurnAngle = Mathf.Lerp(seekTurnAngle, obstacleTurnAngle, obstacleProximity);
-                }
-                else
-                    finalTurnAngle = obstacleTurnAngle;
+                finalTurnAngle = obstacleTurnAngle;
                 
                 if (Mathf.Abs(finalTurnAngle) > 5f && hasAnyObstacle)
                 {
@@ -296,17 +296,21 @@ namespace Fuzzy
                     isInTurnMemoryMode = true;
                     Debug.Log($"Memorized CLAMPED turn: {rememberedRotation:F1}° for {turnMemoryTime}s");
                 }
-                if(targetRotation < 0.01f && targetSpeed < 0.01f) {
-                    targetRotation = 180f;
-                    targetSpeed = 0.01f;
-                }
-                else
-                    targetRotation = finalTurnAngle;
             }
             
-            Debug.Log($"Distances: F{frontDist:F1}, L{leftDist:F1}, R{rightDist:F1}");
-            Debug.Log($"Obstacle turn: {obstacleTurnAngle:F1}°, Seek: {(hasSeek ? seekTurnAngle.ToString("F1") : "n/a")}°, Final: {finalTurnAngle:F1}°, Speed: {targetSpeed:F1}");
+            targetRotation = finalTurnAngle;
         }
+        
+        if (targetRotation < 0.01f && targetSpeed < 0.01f)
+        {
+            targetRotation = 180f;
+            targetSpeed = 0.01f;
+        }
+        
+        Debug.Log($"Distances: F{frontDist:F1}, L{leftDist:F1}, R{rightDist:F1}");
+        Debug.Log($"Obstacle turn: {obstacleTurnAngle:F1}°, Seek: {(hasSeek ? seekTurnAngle.ToString("F1") : "n/a")}°, Target: {targetRotation:F1}°, Speed: {targetSpeed:F1}");
+        Debug.Log($"Mode: {(hasTrash && enableTrashBinSeeking ? "Delivering to bin" : "Searching trash")}, Memory: {hasTurnMemory}");
+    }
 
         void ForceClearTurnMemory()
         {

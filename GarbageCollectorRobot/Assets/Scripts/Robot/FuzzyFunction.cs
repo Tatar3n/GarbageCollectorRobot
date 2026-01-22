@@ -475,7 +475,7 @@ public class FuzzyFunction
                 sign=1;
             else if (trah<0f)
                 sign=-1;
-        List<float> list = distans_angle(dr);
+        List<float> list = distans_angle(dl);
         List<float> list1 = Suport_angle(list);
         float q1r = list1[0];
         float q2r = list1[1];
@@ -484,7 +484,7 @@ public class FuzzyFunction
         float part_funtion_r = list1[4];
         float k1r = list1[5];
         float k2r = list1[6];
-        List<float> list2 = distans_angle(dl);
+        List<float> list2 = distans_angle(dr);
         List<float> list3 = Suport_angle(list2);
         float q1l = list3[0];
         float q2l = list3[1];

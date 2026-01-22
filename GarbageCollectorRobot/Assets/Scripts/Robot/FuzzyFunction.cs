@@ -368,12 +368,7 @@ public class FuzzyFunction
     }
     public float Integrate(float a, float b, float x1, float x2, bool isNumerator)
     {
-        if (x1>x2)
-        {
-            float x=x1;
-            x1=x2;
-            x2=x;
-        }
+        
         if (isNumerator)
         {
             // ∫(ax² + bx)dx от x1 до x2 = (a/3)x³ + (b/2)x² | от x1 до x2
@@ -476,6 +471,7 @@ public class FuzzyFunction
             else if (trah<0f)
                 sign=-1;
         List<float> list = distans_angle(dl);
+
         List<float> list1 = Suport_angle(list);
         float q1r = list1[0];
         float q2r = list1[1];
@@ -484,7 +480,9 @@ public class FuzzyFunction
         float part_funtion_r = list1[4];
         float k1r = list1[5];
         float k2r = list1[6];
+
         List<float> list2 = distans_angle(dr);
+
         List<float> list3 = Suport_angle(list2);
         float q1l = list3[0];
         float q2l = list3[1];
@@ -500,8 +498,16 @@ public class FuzzyFunction
 
 /////////////////////////////////////
 /// 
-        if ((sign==1f) || (sign==0f))
+        if ((sign==-1f) || (sign==0f))
         {
+        list3 = Suport_angle(list2);
+        q1l = list3[0];
+        q2l = list3[1];
+        q3l = list3[2];
+        q4l = list3[3];
+        part_funtion_l = list3[4];
+        k1l = list3[5];
+        k2l = list3[6];
         //нужно сделать ифы такиеже как и тут только и для право и для лево   для право до плюса после для лево
         if (part_funtion_r == 1f)// остановка
         {
@@ -523,7 +529,15 @@ public class FuzzyFunction
         }
         else if (part_funtion_r == 2.5f)// быстро зависит от далеко 
         {
-
+            list[2]=1.5f;
+            list1 = Suport_angle(list);
+            q1r = list1[0];
+            q2r = list1[1];
+            q3r = list1[2];
+            q4r = list1[3];
+            part_funtion_r = list1[4];
+            k1r = list1[5];
+            k2r = list1[6];
             
 
             if (k1r == k2r)
@@ -547,6 +561,15 @@ public class FuzzyFunction
         }
         else if (part_funtion_r == 3.5f)// быстро зависит от далеко 
         {
+            list[2]=2.5f;
+            list1 = Suport_angle(list);
+            q1r = list1[0];
+            q2r = list1[1];
+            q3r = list1[2];
+            q4r = list1[3];
+            part_funtion_r = list1[4];
+            k1r = list1[5];
+            k2r = list1[6];
             if (k1r == k2r)
             {
                 //возрастание в начале дальше прямая линия
@@ -565,6 +588,8 @@ public class FuzzyFunction
         {
             right=(Integrate(0.1f,-1f,10f,20f,true)+Integrate(0f,1f,20f,40f,true)+Integrate(-0.05f,3f,40f,60f,true))/(Integrate(0.1f,-1f,10f,20f,false)+Integrate(0f,1f,20f,40f,false)+Integrate(-0.05f,3f,40f,60f,false));
         }
+        else
+        right=0;
         
 
 
@@ -635,11 +660,21 @@ public class FuzzyFunction
         {
             left= (Integrate(0f,1f,0f,-10f,true)+Integrate(0.1f,2f,-10f,-20f,true))/(Integrate(0f,1f,0f,-10f,true)+Integrate(0.1f,2f,-10f,-20f,false));
         }
+        else
+        left=0;
         }
 
 ///////////////////////////////////////////////////////
         else
         {
+        list1 = Suport_angle(list);
+        q1r = list1[0];
+        q2r = list1[1];
+        q3r = list1[2];
+        q4r = list1[3];
+        part_funtion_r = list1[4];
+        k1r = list1[5];
+        k2r = list1[6];
         //нужно сделать ифы такиеже как и тут только и для право и для лево   для право до плюса после для лево
         if (part_funtion_l == 1f)// остановка
         {
@@ -661,8 +696,15 @@ public class FuzzyFunction
         }
         else if (part_funtion_l == 2.5f)// быстро зависит от далеко 
         {
-
-            
+        list2[2]=1.5f;
+        list3 = Suport_angle(list2);
+        q1l = list3[0];
+        q2l = list3[1];
+        q3l = list3[2];
+        q4l = list3[3];
+        part_funtion_l = list3[4];
+        k1l = list3[5];
+        k2l = list3[6];
 
             if (k1l == k2l)
             {
@@ -685,6 +727,15 @@ public class FuzzyFunction
         }
         else if (part_funtion_l == 3.5f)// быстро зависит от далеко 
         {
+        list2[2]=2.5f;
+        list3 = Suport_angle(list2);
+        q1l = list3[0];
+        q2l = list3[1];
+        q3l = list3[2];
+        q4l = list3[3];
+        part_funtion_l = list3[4];
+        k1l = list3[5];
+        k2l = list3[6];
             if (k1l == k2l)
             {
                 //возрастание в начале дальше прямая линия
@@ -703,6 +754,8 @@ public class FuzzyFunction
         {
             left=(Integrate(-0.1f,-1f,-10f,-20f,true)+Integrate(0f,1f,-20f,-40f,true)+Integrate(0.05f,3f,-40f,-60f,true))/(Integrate(-0.1f,-1f,-10f,-20f,false)+Integrate(0f,1f,-20f,-40f,false)+Integrate(0.05f,3f,-40f,-60f,false));
         }
+        else
+        left=0f;
         
 
 
@@ -773,6 +826,8 @@ public class FuzzyFunction
         {
             right= (Integrate(0f,1f,0f,10f,true)+Integrate(-0.1f,2f,10f,20f,true))/(Integrate(0f,1f,0f,10f,true)+Integrate(-0.1f,2f,10f,20f,false));
         }
+        else
+        right=0f;
         }
 
         

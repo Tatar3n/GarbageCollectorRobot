@@ -229,7 +229,7 @@ namespace Fuzzy
         else if (hasTurnMemory && !shouldClearMemory)
         {
             shouldClearMemory = true;
-            Debug.Log($"No obstacles detected - memory will clear in {memoryClearDelay:F2}s");
+            
         }
         
         float minDistance = Mathf.Min(frontDist, rightDist - 0.32f, leftDist - 0.32f);
@@ -239,10 +239,11 @@ namespace Fuzzy
         bool isLeft = true;
         float obstacleTurnAngle = 0.0f;
         
-        obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, leftDist, 0);
+        obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, leftDist, 0f);
         
         float seekTurnAngle = 0f;
         bool hasSeek = false;
+        float signedAngle = 0f;
         
         if (hasTrash && enableTrashBinSeeking && currentTargetBin != null)
         {
@@ -251,25 +252,18 @@ namespace Fuzzy
             {
                 Vector2 desiredDir = toBin.normalized;
                 Vector2 forward = transform.up;
-                float signedAngle = Vector2.SignedAngle(forward, desiredDir);
+                signedAngle = Vector2.SignedAngle(forward, desiredDir);
                 float absAngle = Mathf.Abs(signedAngle);
                 
-                seekTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, leftDist, signedAngle);
+                obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, leftDist, signedAngle);
                 hasSeek = true;
             }
         }
         
         if (hasTrash && enableTrashBinSeeking && currentTargetBin != null)
         {
-            if (hasSeek)
-            {
-                float obstacleProximity = 1f - Mathf.InverseLerp(0.7f, 2.5f, Mathf.Min(dMin, 2.5f));
-                obstacleProximity = Mathf.Clamp01(obstacleProximity);
-                targetRotation = Mathf.Lerp(seekTurnAngle, obstacleTurnAngle, obstacleProximity);
-            }
-            else
-                targetRotation = obstacleTurnAngle;
-            
+
+            targetRotation = obstacleTurnAngle;
             hasTurnMemory = false;
             isInTurnMemoryMode = false;
             rememberedRotation = 0f;
@@ -282,7 +276,7 @@ namespace Fuzzy
             if (isInTurnMemoryMode && hasTurnMemory && !shouldClearMemory)
             {
                 finalTurnAngle = rememberedRotation;
-                Debug.Log($"Using memory turn: {finalTurnAngle:F1}°, Timer: {turnMemoryTimer:F2}");
+                
             }
             else
             {
@@ -294,7 +288,7 @@ namespace Fuzzy
                     turnMemoryTimer = turnMemoryTime + Random.Range(0f, 0.1f);
                     hasTurnMemory = true;
                     isInTurnMemoryMode = true;
-                    Debug.Log($"Memorized CLAMPED turn: {rememberedRotation:F1}° for {turnMemoryTime}s");
+                    
                 }
             }
             
@@ -306,10 +300,12 @@ namespace Fuzzy
             targetRotation = 180f;
             targetSpeed = 0.01f;
         }
-        
-        Debug.Log($"Distances: F{frontDist:F1}, L{leftDist:F1}, R{rightDist:F1}");
+        if (obstacleTurnAngle>130f)
+        {
+        Debug.Log($"Distances: F{frontDist:F1}, L{leftDist:F1}, R{rightDist:F1}, Angel{signedAngle:F1}");
         Debug.Log($"Obstacle turn: {obstacleTurnAngle:F1}°, Seek: {(hasSeek ? seekTurnAngle.ToString("F1") : "n/a")}°, Target: {targetRotation:F1}°, Speed: {targetSpeed:F1}");
         Debug.Log($"Mode: {(hasTrash && enableTrashBinSeeking ? "Delivering to bin" : "Searching trash")}, Memory: {hasTurnMemory}");
+        }
     }
 
         void ForceClearTurnMemory()
@@ -326,7 +322,7 @@ namespace Fuzzy
             }
             
             shouldClearMemory = false;
-            Debug.Log("Turn memory force cleared");
+            
         }
 
         void UpdateTurnMemory()
@@ -363,7 +359,7 @@ namespace Fuzzy
                 float rotationThisFrame = currentRotation * rotationSpeed * Time.deltaTime;
                 transform.Rotate(0, 0, -rotationThisFrame); 
                 
-                Debug.Log($"Rotating on spot: {rotationThisFrame:F1}°/s, Total: {currentRotation:F1}°");
+                
             }
         }
 

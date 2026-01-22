@@ -252,7 +252,9 @@ namespace Fuzzy
             {
                 Vector2 desiredDir = toBin.normalized;
                 Vector2 forward = transform.up;
-                signedAngle = Vector2.SignedAngle(forward, desiredDir);
+                // SignedAngle возвращает положительный угол если цель СЛЕВА
+                // Нам нужно: положительный = цель СПРАВА, поэтому инвертируем
+                signedAngle = -Vector2.SignedAngle(forward, desiredDir);
                 
                 // Передаём угол до мусорки в нечёткую логику
                 obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, leftDist, signedAngle);

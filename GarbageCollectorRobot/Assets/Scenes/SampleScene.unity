@@ -2545,8 +2545,8 @@ MonoBehaviour:
   leftSensor: {fileID: 1630436228}
   rightSensor: {fileID: 350677587}
   sensorLength: 3
-  leftSensorAngle: 9
-  rightSensorAngle: -9
+  leftSensorAngle: 10
+  rightSensorAngle: -10
   baseSpeed: 3
   rotationSpeed: 1
   hasTrash: 0

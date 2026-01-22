@@ -254,16 +254,15 @@ namespace Fuzzy
                 Vector2 forward = transform.up;
                 signedAngle = Vector2.SignedAngle(forward, desiredDir);
                 
-                // Используем специальную нечёткую функцию для направления к цели
-                seekTurnAngle = fuzzyFunction.Sentr_mass_seek(signedAngle, rightDist, leftDist, frontDist);
+                // Передаём угол до мусорки в нечёткую логику
+                obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, leftDist, signedAngle);
                 hasSeek = true;
             }
         }
         
-        if (hasTrash && enableTrashBinSeeking && currentTargetBin != null && hasSeek)
+        if (hasTrash && enableTrashBinSeeking && currentTargetBin != null)
         {
-            // Режим доставки мусора - используем комбинированный угол из Sentr_mass_seek
-            targetRotation = seekTurnAngle;
+            targetRotation = obstacleTurnAngle;
             hasTurnMemory = false;
             isInTurnMemoryMode = false;
             rememberedRotation = 0f;

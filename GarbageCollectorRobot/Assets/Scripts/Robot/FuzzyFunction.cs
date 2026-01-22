@@ -179,6 +179,72 @@ public class FuzzyFunction
         list.Add(part_funtion);
         return list;
     }
+
+    /// <summary>
+    /// Функция принадлежности для угла до цели (мусорки).
+    /// Возвращает: k1 - степень принадлежности к текущей категории,
+    ///             k2 - степень принадлежности к следующей категории,
+    ///             part_funtion - номер категории:
+    ///               1 = очень маленький (0-15°) - почти на цели
+    ///               1.5 = переход 15-30°
+    ///               2 = маленький (30-45°) - небольшое отклонение
+    ///               2.5 = переход 45-60°
+    ///               3 = средний (60-90°) - нужен поворот
+    ///               3.5 = переход 90-120°
+    ///               4 = большой (>120°) - цель сзади
+    /// </summary>
+    public List<float> target_angle(float angle)
+    {
+        float absAngle = Mathf.Abs(angle);
+        float k1 = 0f;
+        float k2 = 0f;
+        float part_funtion = 0f;
+        
+        if (absAngle <= 15f) // очень маленький - почти на цели
+        {
+            k1 = 1f;
+            part_funtion = 1f;
+        }
+        else if (absAngle > 15f && absAngle < 30f) // переход
+        {
+            k1 = 1f - (absAngle - 15f) / 15f;
+            k2 = (absAngle - 15f) / 15f;
+            part_funtion = 1.5f;
+        }
+        else if (absAngle >= 30f && absAngle <= 45f) // маленький
+        {
+            k1 = 1f;
+            part_funtion = 2f;
+        }
+        else if (absAngle > 45f && absAngle < 60f) // переход
+        {
+            k1 = 1f - (absAngle - 45f) / 15f;
+            k2 = (absAngle - 45f) / 15f;
+            part_funtion = 2.5f;
+        }
+        else if (absAngle >= 60f && absAngle <= 90f) // средний
+        {
+            k1 = 1f;
+            part_funtion = 3f;
+        }
+        else if (absAngle > 90f && absAngle < 120f) // переход
+        {
+            k1 = 1f - (absAngle - 90f) / 30f;
+            k2 = (absAngle - 90f) / 30f;
+            part_funtion = 3.5f;
+        }
+        else // большой - цель сзади
+        {
+            k1 = 1f;
+            part_funtion = 4f;
+        }
+        
+        List<float> list = new List<float>();
+        list.Add(k1);
+        list.Add(k2);
+        list.Add(part_funtion);
+        return list;
+    }
     public List<float> Suport_angle(List<float> inputList)//функция для нахождения отрезков где функция возрастает и убывает
     {
         float k1 = inputList[0];//правая
@@ -461,8 +527,9 @@ public class FuzzyFunction
     }
 
     // Поворот по габаритным датчикам (возвращает угол поворота робота, в градусах).
-    // В функцию передаётся расстояние с датчика, который БЛИЖЕ к препятствию,
-    // и признак: левый датчик или правый (true = левый).
+    // dr - дистанция правого датчика
+    // dl - дистанция левого датчика  
+    // trah - угол до цели (мусорки), 0 если цели нет
     public float Sentr_mass_rotate(float dr, float dl, float trah)
         {
             float sign=0f;
@@ -470,6 +537,13 @@ public class FuzzyFunction
                 sign=1;
             else if (trah<0f)
                 sign=-1;
+        
+        // Получаем нечёткие значения для угла до цели
+        List<float> targetList = target_angle(trah);
+        float target_k1 = targetList[0];
+        float target_k2 = targetList[1];
+        float target_part = targetList[2];
+        
         List<float> list = distans_angle(dl);
 
         List<float> list1 = Suport_angle(list);
@@ -832,144 +906,104 @@ public class FuzzyFunction
 
         
 
-        float result = right + left;
+        float obstacleResult = right + left;
         
-        // Защита от некорректных значений (NaN, Infinity) и clamp в диапазон [-150, 150]
+        // Защита от некорректных значений
+        if (float.IsNaN(obstacleResult) || float.IsInfinity(obstacleResult))
+        {
+            obstacleResult = 0f;
+        }
+        
+        // Если нет цели (trah == 0), возвращаем только угол обхода препятствий
+        if (Mathf.Abs(trah) < 0.01f)
+        {
+            return Mathf.Clamp(obstacleResult, -150f, 150f);
+        }
+        
+        // ===== НЕЧЁТКАЯ ЛОГИКА КОМБИНИРОВАНИЯ =====
+        // Правила:
+        // 1. Левый близко И Правый близко -> приоритет обходу
+        // 2. Левый далеко И Правый далеко И Угол большой -> сильно к цели
+        // 3. Левый далеко И Правый далеко И Угол маленький -> слабо к цели
+        // 4. Левый близко И Правый далеко И Угол вправо -> обход влево + к цели
+        // 5. Левый далеко И Правый близко И Угол влево -> обход вправо + к цели
+        
+        // Определяем минимальную дистанцию до препятствия
+        float minDist = Mathf.Min(dr, dl);
+        
+        // Степень принадлежности к "препятствие близко"
+        float muObstacleClose = 0f;
+        if (minDist <= 0.8f)
+            muObstacleClose = 1f;
+        else if (minDist < 1.4f)
+            muObstacleClose = (1.4f - minDist) / 0.6f;
+        
+        // Степень принадлежности к "препятствие далеко"  
+        float muObstacleFar = 0f;
+        if (minDist >= 2.0f)
+            muObstacleFar = 1f;
+        else if (minDist > 1.4f)
+            muObstacleFar = (minDist - 1.4f) / 0.6f;
+        
+        // Степень влияния угла до цели (чем больше угол, тем сильнее тянем)
+        float targetInfluence = 0f;
+        if (target_part <= 1.5f) // очень маленький угол - слабое влияние
+        {
+            targetInfluence = 0.2f * target_k1 + 0.35f * target_k2;
+        }
+        else if (target_part <= 2.5f) // маленький угол
+        {
+            targetInfluence = 0.35f * target_k1 + 0.5f * target_k2;
+        }
+        else if (target_part <= 3.5f) // средний угол
+        {
+            targetInfluence = 0.5f * target_k1 + 0.7f * target_k2;
+        }
+        else // большой угол - сильное влияние
+        {
+            targetInfluence = 0.7f;
+        }
+        
+        // Вычисляем угол поворота к цели
+        // Используем знак trah и интенсивность на основе величины угла
+        float targetTurnAngle = Mathf.Sign(trah) * Mathf.Min(Mathf.Abs(trah), 90f) * targetInfluence;
+        
+        // Комбинируем углы на основе близости препятствий
+        float result;
+        
+        if (muObstacleClose > 0.7f)
+        {
+            // Препятствие очень близко - приоритет обходу (80-90%)
+            float blend = 0.1f + 0.1f * (1f - muObstacleClose);
+            result = obstacleResult * (1f - blend) + targetTurnAngle * blend;
+            
+            // Если обход и цель в одну сторону - усиливаем
+            if (Mathf.Sign(obstacleResult) == Mathf.Sign(targetTurnAngle))
+            {
+                result = obstacleResult;
+            }
+        }
+        else if (muObstacleFar > 0.7f)
+        {
+            // Препятствий нет - приоритет цели (70-90%)
+            float blend = 0.7f + 0.2f * muObstacleFar;
+            result = obstacleResult * (1f - blend) + targetTurnAngle * blend;
+        }
+        else
+        {
+            // Средняя зона - баланс
+            float obstacleWeight = 0.4f + 0.4f * muObstacleClose;
+            float targetWeight = 1f - obstacleWeight;
+            result = obstacleResult * obstacleWeight + targetTurnAngle * targetWeight;
+        }
+        
+        // Защита от некорректных значений
         if (float.IsNaN(result) || float.IsInfinity(result))
         {
-            return 0f;
+            return Mathf.Clamp(obstacleResult, -150f, 150f);
         }
         
         return Mathf.Clamp(result, -150f, 150f);
         }
-
-    /// <summary>
-    /// Нечёткая логика для направления к цели (мусорке) с учётом препятствий.
-    /// Возвращает угол поворота в градусах [-150, 150].
-    /// </summary>
-    /// <param name="targetAngle">Угол к цели (signedAngle от forward к направлению цели)</param>
-    /// <param name="rightDist">Дистанция с правого датчика</param>
-    /// <param name="leftDist">Дистанция с левого датчика</param>
-    /// <param name="frontDist">Дистанция с переднего датчика</param>
-    /// <returns>Угол поворота с учётом нечёткой логики</returns>
-    public float Sentr_mass_seek(float targetAngle, float rightDist, float leftDist, float frontDist)
-    {
-        // Функции принадлежности для дистанций
-        // Близко: d <= 0.8
-        // Средне: 0.6 < d < 1.6
-        // Далеко: d >= 1.2
-        
-        float minObstacleDist = Mathf.Min(rightDist, leftDist, frontDist);
-        
-        // Степень принадлежности к "близко" (высокий приоритет обхода)
-        float muClose = 0f;
-        if (minObstacleDist <= 0.6f)
-            muClose = 1f;
-        else if (minObstacleDist < 1.0f)
-            muClose = (1.0f - minObstacleDist) / 0.4f;
-        else
-            muClose = 0f;
-        
-        // Степень принадлежности к "далеко" (высокий приоритет направления к цели)
-        float muFar = 0f;
-        if (minObstacleDist >= 2.0f)
-            muFar = 1f;
-        else if (minObstacleDist > 1.2f)
-            muFar = (minObstacleDist - 1.2f) / 0.8f;
-        else
-            muFar = 0f;
-        
-        // Степень принадлежности к "средне" (баланс)
-        float muMedium = 1f - Mathf.Max(muClose, muFar);
-        muMedium = Mathf.Clamp01(muMedium);
-        
-        // Нормализуем угол к цели
-        float clampedTargetAngle = Mathf.Clamp(targetAngle, -150f, 150f);
-        
-        // Вычисляем угол обхода препятствий
-        float obstacleAngle = Sentr_mass_rotate(rightDist, leftDist, targetAngle);
-        
-        // Определяем интенсивность поворота к цели на основе нечёткой логики
-        // Чем дальше препятствия, тем сильнее тянемся к цели
-        
-        // Функция принадлежности для угла к цели
-        // Маленький угол (<30°) - слабый поворот
-        // Средний угол (30-90°) - умеренный поворот  
-        // Большой угол (>90°) - сильный поворот
-        
-        float absTargetAngle = Mathf.Abs(clampedTargetAngle);
-        float seekIntensity = 0f;
-        
-        if (absTargetAngle <= 15f)
-        {
-            // Почти смотрим на цель - минимальная коррекция
-            seekIntensity = absTargetAngle / 15f * 0.3f;
-        }
-        else if (absTargetAngle <= 45f)
-        {
-            // Небольшое отклонение - умеренная коррекция
-            seekIntensity = 0.3f + (absTargetAngle - 15f) / 30f * 0.3f;
-        }
-        else if (absTargetAngle <= 90f)
-        {
-            // Среднее отклонение - активная коррекция
-            seekIntensity = 0.6f + (absTargetAngle - 45f) / 45f * 0.25f;
-        }
-        else
-        {
-            // Большое отклонение - максимальная коррекция
-            seekIntensity = 0.85f + (absTargetAngle - 90f) / 60f * 0.15f;
-        }
-        seekIntensity = Mathf.Clamp01(seekIntensity);
-        
-        // Вычисляем целевой угол поворота к цели
-        // Используем пропорциональный подход с ограничением
-        float seekTurnAngle = clampedTargetAngle * seekIntensity;
-        
-        // Комбинируем углы на основе нечёткой логики
-        float finalAngle = 0f;
-        
-        if (muClose > 0.5f)
-        {
-            // Препятствие близко - приоритет обходу, но учитываем направление к цели
-            float blendFactor = 1f - muClose * 0.7f; // При muClose=1, blendFactor=0.3
-            finalAngle = obstacleAngle * (1f - blendFactor) + seekTurnAngle * blendFactor;
-            
-            // Если обход и направление к цели совпадают по знаку - усиливаем
-            if (Mathf.Sign(obstacleAngle) == Mathf.Sign(seekTurnAngle) && Mathf.Abs(obstacleAngle) > 5f)
-            {
-                finalAngle = obstacleAngle;
-            }
-        }
-        else if (muFar > 0.5f)
-        {
-            // Препятствий нет или далеко - приоритет направлению к цели
-            float blendFactor = muFar; // При muFar=1, полностью к цели
-            finalAngle = seekTurnAngle * blendFactor + obstacleAngle * (1f - blendFactor);
-        }
-        else
-        {
-            // Средняя зона - баланс между обходом и направлением
-            // Веса зависят от степеней принадлежности
-            float totalMu = muClose + muMedium + muFar + 0.001f;
-            float wClose = muClose / totalMu;
-            float wMedium = muMedium / totalMu;
-            float wFar = muFar / totalMu;
-            
-            // Обход важнее при близких препятствиях
-            float obstacleWeight = wClose * 0.9f + wMedium * 0.5f + wFar * 0.1f;
-            float seekWeight = 1f - obstacleWeight;
-            
-            finalAngle = obstacleAngle * obstacleWeight + seekTurnAngle * seekWeight;
-        }
-        
-        // Защита от некорректных значений
-        if (float.IsNaN(finalAngle) || float.IsInfinity(finalAngle))
-        {
-            return clampedTargetAngle * 0.5f; // Fallback - просто поворачиваем к цели
-        }
-        
-        return Mathf.Clamp(finalAngle, -150f, 150f);
-    }
 }
 }

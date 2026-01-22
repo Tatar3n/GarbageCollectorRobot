@@ -179,6 +179,79 @@ public class FuzzyFunction
         list.Add(part_funtion);
         return list;
     }
+
+    /// <summary>
+    /// Функции принадлежности для угла до цели.
+    /// Возвращает степени принадлежности к категориям: маленький, средний, большой
+    /// </summary>
+    public void GetTargetAngleMembership(float angle, out float muSmall, out float muMedium, out float muLarge)
+    {
+        float absAngle = Mathf.Abs(angle);
+        
+        // Маленький угол: 0-30° полная принадлежность, 30-60° спад
+        if (absAngle <= 30f)
+            muSmall = 1f;
+        else if (absAngle < 60f)
+            muSmall = (60f - absAngle) / 30f;
+        else
+            muSmall = 0f;
+        
+        // Средний угол: 30-60° рост, 60-90° полная, 90-120° спад
+        if (absAngle <= 30f)
+            muMedium = 0f;
+        else if (absAngle < 60f)
+            muMedium = (absAngle - 30f) / 30f;
+        else if (absAngle <= 90f)
+            muMedium = 1f;
+        else if (absAngle < 120f)
+            muMedium = (120f - absAngle) / 30f;
+        else
+            muMedium = 0f;
+        
+        // Большой угол: 90-120° рост, >120° полная принадлежность
+        if (absAngle <= 90f)
+            muLarge = 0f;
+        else if (absAngle < 120f)
+            muLarge = (absAngle - 90f) / 30f;
+        else
+            muLarge = 1f;
+    }
+
+    /// <summary>
+    /// Функции принадлежности для дистанции.
+    /// Возвращает степени принадлежности к категориям: близко, средне, далеко
+    /// </summary>
+    public void GetDistanceMembership(float dist, out float muClose, out float muMedium, out float muFar)
+    {
+        // Близко: 0-0.8 полная, 0.8-1.2 спад
+        if (dist <= 0.8f)
+            muClose = 1f;
+        else if (dist < 1.2f)
+            muClose = (1.2f - dist) / 0.4f;
+        else
+            muClose = 0f;
+        
+        // Средне: 0.8-1.2 рост, 1.2-1.8 полная, 1.8-2.2 спад
+        if (dist <= 0.8f)
+            muMedium = 0f;
+        else if (dist < 1.2f)
+            muMedium = (dist - 0.8f) / 0.4f;
+        else if (dist <= 1.8f)
+            muMedium = 1f;
+        else if (dist < 2.2f)
+            muMedium = (2.2f - dist) / 0.4f;
+        else
+            muMedium = 0f;
+        
+        // Далеко: 1.8-2.2 рост, >2.2 полная
+        if (dist <= 1.8f)
+            muFar = 0f;
+        else if (dist < 2.2f)
+            muFar = (dist - 1.8f) / 0.4f;
+        else
+            muFar = 1f;
+    }
+
     public List<float> Suport_angle(List<float> inputList)//функция для нахождения отрезков где функция возрастает и убывает
     {
         float k1 = inputList[0];//правая
@@ -385,6 +458,24 @@ public class FuzzyFunction
         }
     }
 
+    /// <summary>
+    /// Интеграл для взвешенной функции принадлежности.
+    /// Вычисляет ∫ weight * f(x) dx и ∫ weight * x * f(x) dx
+    /// </summary>
+    public void IntegrateWeighted(float a, float b, float x1, float x2, float weight, 
+        ref float numerator, ref float denominator)
+    {
+        if (weight < 0.001f) return;
+        
+        // Числитель: ∫ weight * x * (ax + b) dx = weight * ∫(ax² + bx)dx
+        float num = Integrate(a, b, x1, x2, true);
+        // Знаменатель: ∫ weight * (ax + b) dx = weight * ∫(ax + b)dx
+        float den = Integrate(a, b, x1, x2, false);
+        
+        numerator += weight * num;
+        denominator += weight * den;
+    }
+
     public float Sentr_mass(float d)//функция для нахождения центра масс (Возвращает скорость робота)
     {
         List<float> list = distans(d);
@@ -460,379 +551,287 @@ public class FuzzyFunction
         return 3f-((3f-Mathf.Sqrt(5))/4f);
     }
 
-    // Поворот по габаритным датчикам (возвращает угол поворота робота, в градусах).
-    // В функцию передаётся расстояние с датчика, который БЛИЖЕ к препятствию,
-    // и признак: левый датчик или правый (true = левый).
+    // ============================================================================
+    // НЕЧЁТКАЯ ЛОГИКА ПОВОРОТА С 3 ВХОДАМИ
+    // Входы: левый датчик (dl), правый датчик (dr), угол до цели (trah)
+    // Выход: угол поворота в градусах [-150, 150]
+    // ============================================================================
+    
+    /// <summary>
+    /// Вычисляет выходной угол для одного правила нечёткой логики.
+    /// Использует метод центра масс с интегралами.
+    /// </summary>
+    /// <param name="outputCenter">Центр выходной функции (угол)</param>
+    /// <param name="outputWidth">Ширина выходной функции</param>
+    /// <param name="weight">Степень активации правила (min от входов)</param>
+    private void AddRuleOutput(float outputCenter, float outputWidth, float weight,
+        ref float numerator, ref float denominator)
+    {
+        if (weight < 0.001f) return;
+        
+        // Треугольная функция принадлежности для выхода
+        float x1 = outputCenter - outputWidth;
+        float x2 = outputCenter;
+        float x3 = outputCenter + outputWidth;
+        
+        // Левая часть треугольника (возрастание): y = (x - x1) / (x2 - x1) * weight
+        // a = weight / (x2 - x1), b = -x1 * weight / (x2 - x1)
+        if (Mathf.Abs(x2 - x1) > 0.01f)
+        {
+            float slope = weight / (x2 - x1);
+            IntegrateWeighted(slope, -x1 * slope, x1, x2, 1f, ref numerator, ref denominator);
+        }
+        
+        // Правая часть треугольника (убывание): y = (x3 - x) / (x3 - x2) * weight
+        // a = -weight / (x3 - x2), b = x3 * weight / (x3 - x2)
+        if (Mathf.Abs(x3 - x2) > 0.01f)
+        {
+            float slope = -weight / (x3 - x2);
+            IntegrateWeighted(slope, x3 * (-slope), x2, x3, 1f, ref numerator, ref denominator);
+        }
+    }
+
+    /// <summary>
+    /// Поворот по габаритным датчикам с учётом угла до цели.
+    /// Использует полную нечёткую логику с 3 входами и всеми комбинациями правил.
+    /// </summary>
+    /// <param name="dr">Дистанция правого датчика</param>
+    /// <param name="dl">Дистанция левого датчика</param>
+    /// <param name="trah">Угол до цели (0 если цели нет)</param>
+    /// <returns>Угол поворота в градусах [-150, 150]</returns>
     public float Sentr_mass_rotate(float dr, float dl, float trah)
-        {
-            float sign=0f;
-            if (trah>0f)
-                sign=1;
-            else if (trah<0f)
-                sign=-1;
-        List<float> list = distans_angle(dl);
-
-        List<float> list1 = Suport_angle(list);
-        float q1r = list1[0];
-        float q2r = list1[1];
-        float q3r = list1[2];
-        float q4r = list1[3];
-        float part_funtion_r = list1[4];
-        float k1r = list1[5];
-        float k2r = list1[6];
-
-        List<float> list2 = distans_angle(dr);
-
-        List<float> list3 = Suport_angle(list2);
-        float q1l = list3[0];
-        float q2l = list3[1];
-        float q3l = list3[2];
-        float q4l = list3[3];
-        float part_funtion_l = list3[4];
-        float k1l = list3[5];
-        float k2l = list3[6];
-
-        float left=0f;
-        float right=0f;
-
-
-/////////////////////////////////////
-/// 
-        if ((sign==-1f) || (sign==0f))
-        {
-        list3 = Suport_angle(list2);
-        q1l = list3[0];
-        q2l = list3[1];
-        q3l = list3[2];
-        q4l = list3[3];
-        part_funtion_l = list3[4];
-        k1l = list3[5];
-        k2l = list3[6];
-        //нужно сделать ифы такиеже как и тут только и для право и для лево   для право до плюса после для лево
-        if (part_funtion_r == 1f)// остановка
-        {
-            right=(Integrate(0.025f,-2.25f,90f,130f,true)+Integrate(0f,1f,130f,150f,true))/(Integrate(0.025f,-2.25f,90f,130f,false)+Integrate(0f,1f,130f,150f,false));
-        }
-        //если левая меньше чем правая возрастает на пересечений функции
-        //если правая больше чем левая убывает до пересесеыения функции
-        else if (part_funtion_r == 1.5f)// быстро зависит от далеко 
-        {
-            right=(Integrate(0.025f,-2.25f,90f,130f,true)+Integrate(0f,1f,130f,150f,true))/(Integrate(0.025f,-2.25f,90f,130f,false)+Integrate(0f,1f,130f,150f,false));
-
-            
-        }
-        else if (part_funtion_r == 2f)// средне зависит от средне
-        {
-            right=(Integrate(0.025f,-2.25f,90f,130f,true)+Integrate(0f,1f,130f,150f,true))/(Integrate(0.025f,-2.25f,90f,130f,false)+Integrate(0f,1f,130f,150f,false));
-
-            
-        }
-        else if (part_funtion_r == 2.5f)// быстро зависит от далеко 
-        {
-            list[2]=1.5f;
-            list1 = Suport_angle(list);
-            q1r = list1[0];
-            q2r = list1[1];
-            q3r = list1[2];
-            q4r = list1[3];
-            part_funtion_r = list1[4];
-            k1r = list1[5];
-            k2r = list1[6];
-            
-
-            if (k1r == k2r)
-            {
-                right=(Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,0.5f,q1r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,0.5f,q1r,150f,false));
-            }
-            else if (k1r < k2r)
-            {
-                right=(Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(0.025f,-2.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(0.025f,-2.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
-            }
-            else if (k1r > k2r)
-            {
-                right=(Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k1r,q1r,q2r,true)+Integrate(-0.025f,3.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(-0.025f,3.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
-            }
-                
-        }
-        else if (part_funtion_r == 3f)//медлено зависи от очень близко
-        {
-            right=(Integrate(0.05f,-2f,40f,60f,true)+Integrate(0f,1f,60f,90f,true)+Integrate(-0.025f,3.25f,90f,130f,true))/(Integrate(0.05f,-2f,40f,60f,false)+Integrate(0f,1f,60f,90f,false)+Integrate(-0.025f,3.25f,90f,130f,false));
-            
-        }
-        else if (part_funtion_r == 3.5f)// быстро зависит от далеко 
-        {
-            list[2]=2.5f;
-            list1 = Suport_angle(list);
-            q1r = list1[0];
-            q2r = list1[1];
-            q3r = list1[2];
-            q4r = list1[3];
-            part_funtion_r = list1[4];
-            k1r = list1[5];
-            k2r = list1[6];
-            if (k1r == k2r)
-            {
-                //возрастание в начале дальше прямая линия
-                right=(Integrate(0.1f,-1f,10f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(-0.025f,3.25f,q2r,130f,true))/(Integrate(0.1f,-1f,10f,q1r,false)+Integrate(0f,k2r,q1r,q2r,false)+Integrate(-0.025f,3.25f,q2r,130f,false));
-            }
-            else if (k1r < k2r)
-            {
-                right=(Integrate(0.1f,-1f,10f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(0.05f,-2f,q2r,q3r,true)+Integrate(0f,k1r,q3r,q4r,true)+Integrate(-0.025f,3.25f,q4r,130f,true))/(Integrate(0.1f,-1f,10f,q1r,false)+Integrate(0f,k2r,q1r,q2r,false)+Integrate(0.05f,-2f,q2r,q3r,false)+Integrate(0f,k1r,q3r,q4r,false)+Integrate(-0.025f,3.25f,q4r,130f,false));
-            }
-            else if (k1r > k2r)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
-            {
-                right=(Integrate(0.1f,-1f,10f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(-0.05f,3f,q2r,q3r,true)+Integrate(0f,k1r,q3r,q4r,true)+Integrate(-0.025f,3.25f,q4r,130f,true))/(Integrate(0.1f,-1f,10f,q1r,false)+Integrate(0f,k2r,q1r,q2r,false)+Integrate(-0.05f,3f,q2r,q3r,false)+Integrate(0f,k1r,q3r,q4r,false)+Integrate(-0.025f,3.25f,q4r,130f,false));
-        }
-        }
-        else if (part_funtion_r == 4f)// быстро зависит от далеко 
-        {
-            right=(Integrate(0.1f,-1f,10f,20f,true)+Integrate(0f,1f,20f,40f,true)+Integrate(-0.05f,3f,40f,60f,true))/(Integrate(0.1f,-1f,10f,20f,false)+Integrate(0f,1f,20f,40f,false)+Integrate(-0.05f,3f,40f,60f,false));
-        }
-        else
-        right=0;
+    {
+        // Получаем степени принадлежности для дистанций
+        float dlClose, dlMedium, dlFar;
+        float drClose, drMedium, drFar;
+        GetDistanceMembership(dl, out dlClose, out dlMedium, out dlFar);
+        GetDistanceMembership(dr, out drClose, out drMedium, out drFar);
         
-
-
-        if (part_funtion_l == 1f)// остановка
-        {
-            left= (Integrate(-0.025f,-2.25f,-90f,-130f,true)+Integrate(0f,1f,-130f,-150f,true))/(Integrate(-0.025f,-2.25f,-90f,-130f,false)+Integrate(0f,1f,-130f,-150f,false));
-        }
-        //если левая меньше чем правая возрастает на пересечений функции
-        //если правая больше чем левая убывает до пересесеыения функции
-        else if (part_funtion_l == 1.5f)// быстро зависит от далеко 
-        {
-
-            if (k1l == k2l)
-            {
-                left= (Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,0.5f,-q1l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,0.5f,-q1l,-150f,false));
-            }
-            else if (k1l < k2l)
-            {
-                left= (Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(-0.025f,-2.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(-0.025f,-2.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
-            }
-            else if (k1l > k2l)
-            {
-                left= (Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k1l,-q1l,-q2l,true)+Integrate(0.025f,3.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(0.025f,3.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
-            }
-        }
-        else if (part_funtion_l == 2f)// средне зависит от средне
-        {
-            left= (Integrate(-0.05f,-2f,-40f,-60f,true)+Integrate(0f,1f,-60f,-90f,true)+Integrate(0.025f,3.25f,-90f,-130f,true))/(Integrate(-0.05f,-2f,-40f,-60f,false)+Integrate(0f,1f,-60f,-90f,false)+Integrate(0.025f,3.25f,-90f,-130f,false));
-        }
-        else if (part_funtion_l == 2.5f)// быстро зависит от далеко 
-        {
-
-            if (k1l == k2l)
-            {
-                //возрастание в начале дальше прямая линия
-                left= (Integrate(-0.1f,-1f,-10f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(0.025f,3.25f,-q2l,-130f,true))/(Integrate(-0.1f,-1f,-10f,-q1l,false)+Integrate(0f,k2l,-q1l,-q2l,false)+Integrate(0.025f,3.25f,-q2l,-130f,false));
-            }
-            else if (k1l < k2l)
-            {
-                left= (Integrate(-0.1f,-1f,-10f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(-0.05f,-2f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-q4l,true)+Integrate(0.025f,3.25f,-q4l,-130f,true))/(Integrate(-0.1f,-1f,-10f,-q1l,false)+Integrate(0f,k2l,-q1l,-q2l,false)+Integrate(-0.05f,-2f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-q4l,false)+Integrate(0.025f,3.25f,-q4l,-130f,false));
-            }
-            else if (k1l > k2l)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
-            {
-                left= (Integrate(-0.1f,-1f,-10f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(0.05f,3f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-q4l,true)+Integrate(0.025f,3.25f,-q4l,-130f,true))/(Integrate(-0.1f,-1f,-10f,-q1l,false)+Integrate(0f,k2l,-q1l,-q2l,false)+Integrate(0.05f,3f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-q4l,false)+Integrate(0.025f,3.25f,-q4l,-130f,false));
-            }
-        }
-        else if (part_funtion_l == 3f)//медлено зависи от очень близко
-        {
-            left= (Integrate(-0.1f,-1f,-10f,-20f,true)+Integrate(0f,1f,-20f,-40f,true)+Integrate(0.05f,3f,-40f,-60f,true))/(Integrate(-0.1f,-1f,-10f,-20f,false)+Integrate(0f,1f,-20f,-40f,false)+Integrate(0.05f,3f,-40f,-60f,false));
-        }
-        else if (part_funtion_l == 3.5f)// быстро зависит от далеко 
-        {
-            if (k1l == k2l)
-            {
-                //возрастание в начале дальше прямая линия
-                left= (Integrate(0f,k2l,0f,-50f,true)+Integrate(0.05f,3f,-50f,-60f,true))/(Integrate(0f,k2l,0f,-50f,false)+Integrate(0.05f,3f,-50f,-60f,false));
-            }
-            else if (k1l < k2l)
-            {
-                left= (Integrate(0f,k2l,0f,-q1l,true)+Integrate(-0.1f,-1f,-q1l,-15f,true)+Integrate(0.1f,2f,-15f,-q2l,true)+Integrate(0f,k2l,-q2l,-q3l,true)+Integrate(-0.05f,-2f,-q3l,-60f,true))/(Integrate(0f,k2l,0f,-q1l,false)+Integrate(-0.1f,-1f,-q1l,-15f,false)+Integrate(0.1f,2f,-15f,-q2l,false)+Integrate(0f,k2l,-q2l,-q3l,false)+Integrate(-0.05f,-2f,-q3l,-60f,false));
-            }
-            else if (k1l > k2l)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
-            {
-                left= (Integrate(0f,k2l,0f,-q1l,true)+Integrate(0.1f,2f,-q1l,-q2l,true)+Integrate(0f,k1l,-q2l,-q3l,true)+Integrate(0.05f,3f,-q3l,-60f,true))/(Integrate(0f,k2l,-10f,-q1l,false)+Integrate(0.1f,2f,-q1l,-q2l,false)+Integrate(0f,k1l,-q2l,-q3l,false)+Integrate(0.05f,3f,-q3l,-60f,false));
-            }
-        }
-        else if (part_funtion_l == 4f)// быстро зависит от далеко 
-        {
-            left= (Integrate(0f,1f,0f,-10f,true)+Integrate(0.1f,2f,-10f,-20f,true))/(Integrate(0f,1f,0f,-10f,true)+Integrate(0.1f,2f,-10f,-20f,false));
-        }
-        else
-        left=0;
-        }
-
-///////////////////////////////////////////////////////
-        else
-        {
-        list1 = Suport_angle(list);
-        q1r = list1[0];
-        q2r = list1[1];
-        q3r = list1[2];
-        q4r = list1[3];
-        part_funtion_r = list1[4];
-        k1r = list1[5];
-        k2r = list1[6];
-        //нужно сделать ифы такиеже как и тут только и для право и для лево   для право до плюса после для лево
-        if (part_funtion_l == 1f)// остановка
-        {
-            left=(Integrate(-0.025f,-2.25f,-90f,-130f,true)+Integrate(0f,1f,-130f,-150f,true))/(Integrate(-0.025f,-2.25f,-90f,-130f,false)+Integrate(0f,1f,-130f,-150f,false));
-        }
-        //если левая меньше чем правая возрастает на пересечений функции
-        //если правая больше чем левая убывает до пересесеыения функции
-        else if (part_funtion_l == 1.5f)// быстро зависит от далеко 
-        {
-            left=(Integrate(-0.025f,-2.25f,-90f,-130f,true)+Integrate(0f,1f,-130f,-150f,true))/(Integrate(-0.025f,-2.25f,-90f,-130f,false)+Integrate(0f,1f,-130f,-150f,false));
-
-            
-        }
-        else if (part_funtion_l == 2f)// средне зависит от средне
-        {
-            left=(Integrate(-0.025f,-2.25f,-90f,-130f,true)+Integrate(0f,1f,-130f,-150f,true))/(Integrate(-0.025f,-2.25f,-90f,-130f,false)+Integrate(0f,1f,-130f,-150f,false));
-
-            
-        }
-        else if (part_funtion_l == 2.5f)// быстро зависит от далеко 
-        {
-        list2[2]=1.5f;
-        list3 = Suport_angle(list2);
-        q1l = list3[0];
-        q2l = list3[1];
-        q3l = list3[2];
-        q4l = list3[3];
-        part_funtion_l = list3[4];
-        k1l = list3[5];
-        k2l = list3[6];
-
-            if (k1l == k2l)
-            {
-                left=(Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,0.5f,-q1l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,0.5f,-q1l,-150f,false));
-            }
-            else if (k1l < k2l)
-            {
-                left=(Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(-0.025f,-2.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(-0.025f,-2.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
-            }
-            else if (k1l > k2l)
-            {
-                left=(Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k1l,-q1l,-q2l,true)+Integrate(0.025f,3.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(0.025f,3.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
-            }
-                
-        }
-        else if (part_funtion_l == 3f)//медлено зависи от очень близко
-        {
-            left=(Integrate(-0.05f,-2f,-40f,-60f,true)+Integrate(0f,1f,-60f,-90f,true)+Integrate(0.025f,3.25f,-90f,-130f,true))/(Integrate(-0.05f,-2f,-40f,-60f,false)+Integrate(0f,1f,-60f,-90f,false)+Integrate(0.025f,3.25f,-90f,-130f,false));
-            
-        }
-        else if (part_funtion_l == 3.5f)// быстро зависит от далеко 
-        {
-        list2[2]=2.5f;
-        list3 = Suport_angle(list2);
-        q1l = list3[0];
-        q2l = list3[1];
-        q3l = list3[2];
-        q4l = list3[3];
-        part_funtion_l = list3[4];
-        k1l = list3[5];
-        k2l = list3[6];
-            if (k1l == k2l)
-            {
-                //возрастание в начале дальше прямая линия
-                left=(Integrate(-0.1f,-1f,-10f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(0.025f,3.25f,-q2l,-130f,true))/(Integrate(-0.1f,-1f,-10f,-q1l,false)+Integrate(0f,k2l,-q1l,-q2l,false)+Integrate(0.025f,3.25f,-q2l,-130f,false));
-            }
-            else if (k1l < k2l)
-            {
-                left=(Integrate(-0.1f,-1f,-10f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(-0.05f,-2f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-q4l,true)+Integrate(0.025f,3.25f,-q4l,-130f,true))/(Integrate(-0.1f,-1f,-10f,-q1l,false)+Integrate(0f,k2l,-q1l,-q2l,false)+Integrate(-0.05f,-2f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-q4l,false)+Integrate(0.025f,3.25f,-q4l,-130f,false));
-            }
-            else if (k1l > k2l)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
-            {
-                left=(Integrate(-0.1f,-1f,-10f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(0.05f,3f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-q4l,true)+Integrate(0.025f,3.25f,-q4l,-130f,true))/(Integrate(-0.1f,-1f,-10f,-q1l,false)+Integrate(0f,k2l,-q1l,-q2l,false)+Integrate(0.05f,3f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-q4l,false)+Integrate(0.025f,3.25f,-q4l,-130f,false));
-        }
-        }
-        else if (part_funtion_l == 4f)// быстро зависит от далеко 
-        {
-            left=(Integrate(-0.1f,-1f,-10f,-20f,true)+Integrate(0f,1f,-20f,-40f,true)+Integrate(0.05f,3f,-40f,-60f,true))/(Integrate(-0.1f,-1f,-10f,-20f,false)+Integrate(0f,1f,-20f,-40f,false)+Integrate(0.05f,3f,-40f,-60f,false));
-        }
-        else
-        left=0f;
+        // Получаем степени принадлежности для угла до цели
+        float angleSmall, angleMedium, angleLarge;
+        GetTargetAngleMembership(trah, out angleSmall, out angleMedium, out angleLarge);
         
-
-
-        if (part_funtion_r == 1f)// остановка
+        // Знак угла до цели (1 = вправо, -1 = влево, 0 = нет цели)
+        float angleSign = 0f;
+        if (trah > 1f) angleSign = 1f;
+        else if (trah < -1f) angleSign = -1f;
+        
+        // Если нет цели, используем упрощённую логику только с датчиками
+        bool hasTarget = Mathf.Abs(trah) > 1f;
+        
+        float numerator = 0f;
+        float denominator = 0f;
+        
+        // Ширина выходных функций
+        float widthSmall = 15f;   // для слабых поворотов
+        float widthMedium = 25f;  // для средних поворотов
+        float widthLarge = 35f;   // для сильных поворотов
+        
+        // ====================================================================
+        // ПРАВИЛА НЕЧЁТКОЙ ЛОГИКИ: все комбинации (27 правил с целью + 9 без)
+        // Формат: ЕСЛИ левый=X И правый=Y И угол=Z ТО поворот=W
+        // ====================================================================
+        
+        float w; // вес правила (минимум от входов)
+        
+        // --- БЕЗ ЦЕЛИ (trah ≈ 0): 9 правил только по датчикам ---
+        if (!hasTarget)
         {
-            right= (Integrate(0.025f,-2.25f,90f,130f,true)+Integrate(0f,1f,130f,150f,true))/(Integrate(0.025f,-2.25f,90f,130f,false)+Integrate(0f,1f,130f,150f,false));
-        }
-        //если левая меньше чем правая возрастает на пересечений функции
-        //если правая больше чем левая убывает до пересесеыения функции
-        else if (part_funtion_r == 1.5f)// быстро зависит от далеко 
-        {
-
-            if (k1r == k2r)
-            {
-                right= (Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,0.5f,q1r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,0.5f,q1r,150f,false));
-            }
-            else if (k1r < k2r)
-            {
-                right= (Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(0.025f,-2.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(0.025f,-2.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
-            }
-            else if (k1r > k2r)
-            {
-                right= (Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k1r,q1r,q2r,true)+Integrate(-0.025f,3.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(-0.025f,3.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
-            }
-        }
-        else if (part_funtion_r == 2f)// средне зависит от средне
-        {
-            right= (Integrate(0.05f,-2f,40f,60f,true)+Integrate(0f,1f,60f,90f,true)+Integrate(-0.025f,3.25f,90f,130f,true))/(Integrate(0.05f,-2f,40f,60f,false)+Integrate(0f,1f,60f,90f,false)+Integrate(-0.025f,3.25f,90f,130f,false));
-        }
-        else if (part_funtion_r == 2.5f)// быстро зависит от далеко 
-        {
-
-            if (k1r == k2r)
-            {
-                //возрастание в начале дальше прямая линия
-                right= (Integrate(0.1f,-1f,10f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(-0.025f,3.25f,q2r,130f,true))/(Integrate(0.1f,-1f,10f,q1r,false)+Integrate(0f,k2r,q1r,q2r,false)+Integrate(-0.025f,3.25f,q2r,130f,false));
-            }
-            else if (k1r < k2r)
-            {
-                right= (Integrate(0.1f,-1f,10f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(0.05f,-2f,q2r,q3r,true)+Integrate(0f,k1r,q3r,q4r,true)+Integrate(-0.025f,3.25f,q4r,130f,true))/(Integrate(0.1f,-1f,10f,q1r,false)+Integrate(0f,k2r,q1r,q2r,false)+Integrate(0.05f,-2f,q2r,q3r,false)+Integrate(0f,k1r,q3r,q4r,false)+Integrate(-0.025f,3.25f,q4r,130f,false));
-            }
-            else if (k1r > k2r)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
-            {
-                right= (Integrate(0.1f,-1f,10f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(-0.05f,3f,q2r,q3r,true)+Integrate(0f,k1r,q3r,q4r,true)+Integrate(-0.025f,3.25f,q4r,130f,true))/(Integrate(0.1f,-1f,10f,q1r,false)+Integrate(0f,k2r,q1r,q2r,false)+Integrate(-0.05f,3f,q2r,q3r,false)+Integrate(0f,k1r,q3r,q4r,false)+Integrate(-0.025f,3.25f,q4r,130f,false));
-            }
-        }
-        else if (part_funtion_r == 3f)//медлено зависи от очень близко
-        {
-            right= (Integrate(0.1f,-1f,10f,20f,true)+Integrate(0f,1f,20f,40f,true)+Integrate(-0.05f,3f,40f,60f,true))/(Integrate(0.1f,-1f,10f,20f,false)+Integrate(0f,1f,20f,40f,false)+Integrate(-0.05f,3f,40f,60f,false));
-        }
-        else if (part_funtion_r == 3.5f)// быстро зависит от далеко 
-        {
-            if (k1r == k2r)
-            {
-                //возрастание в начале дальше прямая линия
-                right= (Integrate(0f,k2r,0f,50f,true)+Integrate(-0.05f,3f,50f,60f,true))/(Integrate(0f,k2r,0f,50f,false)+Integrate(-0.05f,3f,50f,60f,false));
-            }
-            else if (k1r < k2r)
-            {
-                right= (Integrate(0f,k2r,0f,q1r,true)+Integrate(0.1f,-1f,q1r,15f,true)+Integrate(-0.1f,2f,15f,q2r,true)+Integrate(0f,k2r,q2r,q3r,true)+Integrate(0.05f,-2f,q3r,60f,true))/(Integrate(0f,k2r,0f,q1r,false)+Integrate(0.1f,-1f,q1r,15f,false)+Integrate(-0.1f,2f,15f,q2r,false)+Integrate(0f,k2r,q2r,q3r,false)+Integrate(0.05f,-2f,q3r,60f,false));
-            }
-            else if (k1r > k2r)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
-            {
-                right= (Integrate(0f,k2r,0f,q1r,true)+Integrate(-0.1f,2f,q1r,q2r,true)+Integrate(0f,k1r,q2r,q3r,true)+Integrate(-0.05f,3f,q3r,60f,true))/(Integrate(0f,k2r,10f,q1r,false)+Integrate(-0.1f,2f,q1r,q2r,false)+Integrate(0f,k1r,q2r,q3r,false)+Integrate(-0.05f,3f,q3r,60f,false));
-            }
-        }
-        else if (part_funtion_r == 4f)// быстро зависит от далеко 
-        {
-            right= (Integrate(0f,1f,0f,10f,true)+Integrate(-0.1f,2f,10f,20f,true))/(Integrate(0f,1f,0f,10f,true)+Integrate(-0.1f,2f,10f,20f,false));
+            // 1. Левый близко, Правый близко -> сильно вправо (уходим от обоих)
+            w = Mathf.Min(dlClose, drClose);
+            AddRuleOutput(90f, widthLarge, w, ref numerator, ref denominator);
+            
+            // 2. Левый близко, Правый средне -> средне вправо
+            w = Mathf.Min(dlClose, drMedium);
+            AddRuleOutput(60f, widthMedium, w, ref numerator, ref denominator);
+            
+            // 3. Левый близко, Правый далеко -> сильно вправо
+            w = Mathf.Min(dlClose, drFar);
+            AddRuleOutput(90f, widthLarge, w, ref numerator, ref denominator);
+            
+            // 4. Левый средне, Правый близко -> средне влево
+            w = Mathf.Min(dlMedium, drClose);
+            AddRuleOutput(-60f, widthMedium, w, ref numerator, ref denominator);
+            
+            // 5. Левый средне, Правый средне -> прямо
+            w = Mathf.Min(dlMedium, drMedium);
+            AddRuleOutput(0f, widthSmall, w, ref numerator, ref denominator);
+            
+            // 6. Левый средне, Правый далеко -> слабо вправо
+            w = Mathf.Min(dlMedium, drFar);
+            AddRuleOutput(20f, widthSmall, w, ref numerator, ref denominator);
+            
+            // 7. Левый далеко, Правый близко -> сильно влево
+            w = Mathf.Min(dlFar, drClose);
+            AddRuleOutput(-90f, widthLarge, w, ref numerator, ref denominator);
+            
+            // 8. Левый далеко, Правый средне -> слабо влево
+            w = Mathf.Min(dlFar, drMedium);
+            AddRuleOutput(-20f, widthSmall, w, ref numerator, ref denominator);
+            
+            // 9. Левый далеко, Правый далеко -> прямо
+            w = Mathf.Min(dlFar, drFar);
+            AddRuleOutput(0f, widthSmall, w, ref numerator, ref denominator);
         }
         else
-        right=0f;
+        {
+            // --- С ЦЕЛЬЮ: 27 правил (3x3x3) ---
+            // Направление к цели учитывается через angleSign
+            
+            // ========== ЛЕВЫЙ БЛИЗКО ==========
+            
+            // Левый близко, Правый близко, Угол маленький -> сильно вправо (обход важнее)
+            w = Mathf.Min(dlClose, Mathf.Min(drClose, angleSmall));
+            AddRuleOutput(100f, widthLarge, w, ref numerator, ref denominator);
+            
+            // Левый близко, Правый близко, Угол средний -> сильно в сторону цели (но обход)
+            w = Mathf.Min(dlClose, Mathf.Min(drClose, angleMedium));
+            AddRuleOutput(90f * angleSign, widthLarge, w, ref numerator, ref denominator);
+            
+            // Левый близко, Правый близко, Угол большой -> очень сильно в сторону цели
+            w = Mathf.Min(dlClose, Mathf.Min(drClose, angleLarge));
+            AddRuleOutput(110f * angleSign, widthLarge, w, ref numerator, ref denominator);
+            
+            // Левый близко, Правый средне, Угол маленький -> средне вправо
+            w = Mathf.Min(dlClose, Mathf.Min(drMedium, angleSmall));
+            AddRuleOutput(50f, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый близко, Правый средне, Угол средний -> вправо с учётом цели
+            w = Mathf.Min(dlClose, Mathf.Min(drMedium, angleMedium));
+            if (angleSign > 0) // цель справа - совпадает с обходом
+                AddRuleOutput(70f, widthMedium, w, ref numerator, ref denominator);
+            else // цель слева - конфликт, приоритет обходу
+                AddRuleOutput(40f, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый близко, Правый средне, Угол большой -> сильно в сторону цели
+            w = Mathf.Min(dlClose, Mathf.Min(drMedium, angleLarge));
+            if (angleSign > 0)
+                AddRuleOutput(80f, widthLarge, w, ref numerator, ref denominator);
+            else
+                AddRuleOutput(30f, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый близко, Правый далеко, Угол маленький -> сильно вправо
+            w = Mathf.Min(dlClose, Mathf.Min(drFar, angleSmall));
+            AddRuleOutput(80f, widthLarge, w, ref numerator, ref denominator);
+            
+            // Левый близко, Правый далеко, Угол средний -> вправо + к цели
+            w = Mathf.Min(dlClose, Mathf.Min(drFar, angleMedium));
+            if (angleSign > 0)
+                AddRuleOutput(90f, widthLarge, w, ref numerator, ref denominator);
+            else
+                AddRuleOutput(50f, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый близко, Правый далеко, Угол большой -> к цели (путь справа свободен)
+            w = Mathf.Min(dlClose, Mathf.Min(drFar, angleLarge));
+            if (angleSign > 0)
+                AddRuleOutput(100f, widthLarge, w, ref numerator, ref denominator);
+            else
+                AddRuleOutput(40f, widthMedium, w, ref numerator, ref denominator);
+            
+            // ========== ЛЕВЫЙ СРЕДНЕ ==========
+            
+            // Левый средне, Правый близко, Угол маленький -> средне влево
+            w = Mathf.Min(dlMedium, Mathf.Min(drClose, angleSmall));
+            AddRuleOutput(-50f, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый средне, Правый близко, Угол средний -> влево с учётом цели
+            w = Mathf.Min(dlMedium, Mathf.Min(drClose, angleMedium));
+            if (angleSign < 0) // цель слева - совпадает
+                AddRuleOutput(-70f, widthMedium, w, ref numerator, ref denominator);
+            else
+                AddRuleOutput(-40f, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый средне, Правый близко, Угол большой -> сильно к цели
+            w = Mathf.Min(dlMedium, Mathf.Min(drClose, angleLarge));
+            if (angleSign < 0)
+                AddRuleOutput(-80f, widthLarge, w, ref numerator, ref denominator);
+            else
+                AddRuleOutput(-30f, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый средне, Правый средне, Угол маленький -> слабо к цели
+            w = Mathf.Min(dlMedium, Mathf.Min(drMedium, angleSmall));
+            AddRuleOutput(15f * angleSign, widthSmall, w, ref numerator, ref denominator);
+            
+            // Левый средне, Правый средне, Угол средний -> средне к цели
+            w = Mathf.Min(dlMedium, Mathf.Min(drMedium, angleMedium));
+            AddRuleOutput(45f * angleSign, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый средне, Правый средне, Угол большой -> сильно к цели
+            w = Mathf.Min(dlMedium, Mathf.Min(drMedium, angleLarge));
+            AddRuleOutput(70f * angleSign, widthLarge, w, ref numerator, ref denominator);
+            
+            // Левый средне, Правый далеко, Угол маленький -> слабо вправо
+            w = Mathf.Min(dlMedium, Mathf.Min(drFar, angleSmall));
+            AddRuleOutput(15f, widthSmall, w, ref numerator, ref denominator);
+            
+            // Левый средне, Правый далеко, Угол средний -> к цели
+            w = Mathf.Min(dlMedium, Mathf.Min(drFar, angleMedium));
+            AddRuleOutput(40f * angleSign, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый средне, Правый далеко, Угол большой -> сильно к цели
+            w = Mathf.Min(dlMedium, Mathf.Min(drFar, angleLarge));
+            AddRuleOutput(65f * angleSign, widthMedium, w, ref numerator, ref denominator);
+            
+            // ========== ЛЕВЫЙ ДАЛЕКО ==========
+            
+            // Левый далеко, Правый близко, Угол маленький -> сильно влево
+            w = Mathf.Min(dlFar, Mathf.Min(drClose, angleSmall));
+            AddRuleOutput(-80f, widthLarge, w, ref numerator, ref denominator);
+            
+            // Левый далеко, Правый близко, Угол средний -> влево + к цели
+            w = Mathf.Min(dlFar, Mathf.Min(drClose, angleMedium));
+            if (angleSign < 0)
+                AddRuleOutput(-90f, widthLarge, w, ref numerator, ref denominator);
+            else
+                AddRuleOutput(-50f, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый далеко, Правый близко, Угол большой -> к цели (путь слева свободен)
+            w = Mathf.Min(dlFar, Mathf.Min(drClose, angleLarge));
+            if (angleSign < 0)
+                AddRuleOutput(-100f, widthLarge, w, ref numerator, ref denominator);
+            else
+                AddRuleOutput(-40f, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый далеко, Правый средне, Угол маленький -> слабо влево
+            w = Mathf.Min(dlFar, Mathf.Min(drMedium, angleSmall));
+            AddRuleOutput(-15f, widthSmall, w, ref numerator, ref denominator);
+            
+            // Левый далеко, Правый средне, Угол средний -> к цели
+            w = Mathf.Min(dlFar, Mathf.Min(drMedium, angleMedium));
+            AddRuleOutput(40f * angleSign, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый далеко, Правый средне, Угол большой -> сильно к цели
+            w = Mathf.Min(dlFar, Mathf.Min(drMedium, angleLarge));
+            AddRuleOutput(65f * angleSign, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый далеко, Правый далеко, Угол маленький -> слабо к цели
+            w = Mathf.Min(dlFar, Mathf.Min(drFar, angleSmall));
+            AddRuleOutput(20f * angleSign, widthSmall, w, ref numerator, ref denominator);
+            
+            // Левый далеко, Правый далеко, Угол средний -> средне к цели
+            w = Mathf.Min(dlFar, Mathf.Min(drFar, angleMedium));
+            AddRuleOutput(50f * angleSign, widthMedium, w, ref numerator, ref denominator);
+            
+            // Левый далеко, Правый далеко, Угол большой -> сильно к цели
+            w = Mathf.Min(dlFar, Mathf.Min(drFar, angleLarge));
+            AddRuleOutput(80f * angleSign, widthLarge, w, ref numerator, ref denominator);
         }
-
         
-
-        return right+left;
+        // Дефаззификация: центр масс
+        if (Mathf.Abs(denominator) < 0.0001f)
+        {
+            return 0f;
         }
+        
+        float result = numerator / denominator;
+        
+        // Защита от некорректных значений
+        if (float.IsNaN(result) || float.IsInfinity(result))
+        {
+            return 0f;
+        }
+        
+        return Mathf.Clamp(result, -150f, 150f);
+    }
 }
 }

@@ -252,9 +252,11 @@ namespace Fuzzy
             {
                 Vector2 desiredDir = toBin.normalized;
                 Vector2 forward = transform.up;
-                signedAngle = Vector2.SignedAngle(forward, desiredDir);
-                float absAngle = Mathf.Abs(signedAngle);
+                // SignedAngle возвращает положительный угол если цель СЛЕВА
+                // Нам нужно: положительный = цель СПРАВА, поэтому инвертируем
+                signedAngle = -Vector2.SignedAngle(forward, desiredDir);
                 
+                // Передаём угол до мусорки в нечёткую логику
                 obstacleTurnAngle = fuzzyFunction.Sentr_mass_rotate(rightDist, leftDist, signedAngle);
                 hasSeek = true;
             }
@@ -262,7 +264,6 @@ namespace Fuzzy
         
         if (hasTrash && enableTrashBinSeeking && currentTargetBin != null)
         {
-
             targetRotation = obstacleTurnAngle;
             hasTurnMemory = false;
             isInTurnMemoryMode = false;
@@ -300,11 +301,13 @@ namespace Fuzzy
             targetRotation = 180f;
             targetSpeed = 0.01f;
         }
-        if (obstacleTurnAngle>130f)
+        
+        // Debug логирование только при необычных значениях
+        if (showDebug && Mathf.Abs(targetRotation) > 100f)
         {
-        Debug.Log($"Distances: F{frontDist:F1}, L{leftDist:F1}, R{rightDist:F1}, Angel{signedAngle:F1}");
-        Debug.Log($"Obstacle turn: {obstacleTurnAngle:F1}°, Seek: {(hasSeek ? seekTurnAngle.ToString("F1") : "n/a")}°, Target: {targetRotation:F1}°, Speed: {targetSpeed:F1}");
-        Debug.Log($"Mode: {(hasTrash && enableTrashBinSeeking ? "Delivering to bin" : "Searching trash")}, Memory: {hasTurnMemory}");
+            Debug.Log($"[FuzzyNav] Dist: F={frontDist:F1}, L={leftDist:F1}, R={rightDist:F1}");
+            Debug.Log($"[FuzzyNav] Angle to target: {signedAngle:F1}°, Seek turn: {seekTurnAngle:F1}°, Obstacle turn: {obstacleTurnAngle:F1}°");
+            Debug.Log($"[FuzzyNav] Final rotation: {targetRotation:F1}°, Mode: {(hasTrash ? "Delivering" : "Searching")}");
         }
     }
 

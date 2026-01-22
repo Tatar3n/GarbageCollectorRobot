@@ -546,11 +546,11 @@ public class FuzzyFunction
             }
             else if (k1r < k2r)
             {
-                right=(Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(0.025f,-2.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(0.025f,-2.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
+                right=(Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(0.025f,-2.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k2r,q1r,q2r,false)+Integrate(0.025f,-2.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
             }
             else if (k1r > k2r)
             {
-                right=(Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k1r,q1r,q2r,true)+Integrate(-0.025f,3.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(-0.025f,3.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
+                right=(Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k1r,q1r,q2r,true)+Integrate(-0.025f,3.25f,q2r,q3r,true)+Integrate(0f,k2r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(-0.025f,3.25f,q2r,q3r,false)+Integrate(0f,k2r,q3r,150f,false));
             }
                 
         }
@@ -608,11 +608,11 @@ public class FuzzyFunction
             }
             else if (k1l < k2l)
             {
-                left= (Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(-0.025f,-2.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(-0.025f,-2.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
+                left= (Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(-0.025f,-2.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k2l,-q1l,-q2l,false)+Integrate(-0.025f,-2.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
             }
             else if (k1l > k2l)
             {
-                left= (Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k1l,-q1l,-q2l,true)+Integrate(0.025f,3.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(0.025f,3.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
+                left= (Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k1l,-q1l,-q2l,true)+Integrate(0.025f,3.25f,-q2l,-q3l,true)+Integrate(0f,k2l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(0.025f,3.25f,-q2l,-q3l,false)+Integrate(0f,k2l,-q3l,-150f,false));
             }
         }
         else if (part_funtion_l == 2f)// средне зависит от средне
@@ -653,12 +653,12 @@ public class FuzzyFunction
             }
             else if (k1l > k2l)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
             {
-                left= (Integrate(0f,k2l,0f,-q1l,true)+Integrate(0.1f,2f,-q1l,-q2l,true)+Integrate(0f,k1l,-q2l,-q3l,true)+Integrate(0.05f,3f,-q3l,-60f,true))/(Integrate(0f,k2l,-10f,-q1l,false)+Integrate(0.1f,2f,-q1l,-q2l,false)+Integrate(0f,k1l,-q2l,-q3l,false)+Integrate(0.05f,3f,-q3l,-60f,false));
+                left= (Integrate(0f,k2l,0f,-q1l,true)+Integrate(0.1f,2f,-q1l,-q2l,true)+Integrate(0f,k1l,-q2l,-q3l,true)+Integrate(0.05f,3f,-q3l,-60f,true))/(Integrate(0f,k2l,0f,-q1l,false)+Integrate(0.1f,2f,-q1l,-q2l,false)+Integrate(0f,k1l,-q2l,-q3l,false)+Integrate(0.05f,3f,-q3l,-60f,false));
             }
         }
         else if (part_funtion_l == 4f)// быстро зависит от далеко 
         {
-            left= (Integrate(0f,1f,0f,-10f,true)+Integrate(0.1f,2f,-10f,-20f,true))/(Integrate(0f,1f,0f,-10f,true)+Integrate(0.1f,2f,-10f,-20f,false));
+            left= (Integrate(0f,1f,0f,-10f,true)+Integrate(0.1f,2f,-10f,-20f,true))/(Integrate(0f,1f,0f,-10f,false)+Integrate(0.1f,2f,-10f,-20f,false));
         }
         else
         left=0;
@@ -712,11 +712,11 @@ public class FuzzyFunction
             }
             else if (k1l < k2l)
             {
-                left=(Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(-0.025f,-2.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(-0.025f,-2.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
+                left=(Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k2l,-q1l,-q2l,true)+Integrate(-0.025f,-2.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k2l,-q1l,-q2l,false)+Integrate(-0.025f,-2.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
             }
             else if (k1l > k2l)
             {
-                left=(Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k1l,-q1l,-q2l,true)+Integrate(0.025f,3.25f,-q2l,-q3l,true)+Integrate(0f,k1l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(0.025f,3.25f,-q2l,-q3l,false)+Integrate(0f,k1l,-q3l,-150f,false));
+                left=(Integrate(-0.05f,-2f,-40f,-q1l,true)+Integrate(0f,k1l,-q1l,-q2l,true)+Integrate(0.025f,3.25f,-q2l,-q3l,true)+Integrate(0f,k2l,-q3l,-150f,true))/(Integrate(-0.05f,-2f,-40f,-q1l,false)+Integrate(0f,k1l,-q1l,-q2l,false)+Integrate(0.025f,3.25f,-q2l,-q3l,false)+Integrate(0f,k2l,-q3l,-150f,false));
             }
                 
         }
@@ -774,11 +774,11 @@ public class FuzzyFunction
             }
             else if (k1r < k2r)
             {
-                right= (Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(0.025f,-2.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(0.025f,-2.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
+                right= (Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k2r,q1r,q2r,true)+Integrate(0.025f,-2.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k2r,q1r,q2r,false)+Integrate(0.025f,-2.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
             }
             else if (k1r > k2r)
             {
-                right= (Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k1r,q1r,q2r,true)+Integrate(-0.025f,3.25f,q2r,q3r,true)+Integrate(0f,k1r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(-0.025f,3.25f,q2r,q3r,false)+Integrate(0f,k1r,q3r,150f,false));
+                right= (Integrate(0.05f,-2f,40f,q1r,true)+Integrate(0f,k1r,q1r,q2r,true)+Integrate(-0.025f,3.25f,q2r,q3r,true)+Integrate(0f,k2r,q3r,150f,true))/(Integrate(0.05f,-2f,40f,q1r,false)+Integrate(0f,k1r,q1r,q2r,false)+Integrate(-0.025f,3.25f,q2r,q3r,false)+Integrate(0f,k2r,q3r,150f,false));
             }
         }
         else if (part_funtion_r == 2f)// средне зависит от средне
@@ -819,12 +819,12 @@ public class FuzzyFunction
             }
             else if (k1r > k2r)//НАДО СЧИТАТЬ ПЕРЕМЫЧКУ МЕЖДУ Медлено и средне
             {
-                right= (Integrate(0f,k2r,0f,q1r,true)+Integrate(-0.1f,2f,q1r,q2r,true)+Integrate(0f,k1r,q2r,q3r,true)+Integrate(-0.05f,3f,q3r,60f,true))/(Integrate(0f,k2r,10f,q1r,false)+Integrate(-0.1f,2f,q1r,q2r,false)+Integrate(0f,k1r,q2r,q3r,false)+Integrate(-0.05f,3f,q3r,60f,false));
+                right= (Integrate(0f,k2r,0f,q1r,true)+Integrate(-0.1f,2f,q1r,q2r,true)+Integrate(0f,k1r,q2r,q3r,true)+Integrate(-0.05f,3f,q3r,60f,true))/(Integrate(0f,k2r,0f,q1r,false)+Integrate(-0.1f,2f,q1r,q2r,false)+Integrate(0f,k1r,q2r,q3r,false)+Integrate(-0.05f,3f,q3r,60f,false));
             }
         }
         else if (part_funtion_r == 4f)// быстро зависит от далеко 
         {
-            right= (Integrate(0f,1f,0f,10f,true)+Integrate(-0.1f,2f,10f,20f,true))/(Integrate(0f,1f,0f,10f,true)+Integrate(-0.1f,2f,10f,20f,false));
+            right= (Integrate(0f,1f,0f,10f,true)+Integrate(-0.1f,2f,10f,20f,true))/(Integrate(0f,1f,0f,10f,false)+Integrate(-0.1f,2f,10f,20f,false));
         }
         else
         right=0f;
@@ -832,7 +832,15 @@ public class FuzzyFunction
 
         
 
-        return right+left;
+        float result = right + left;
+        
+        // Защита от некорректных значений (NaN, Infinity) и clamp в диапазон [-150, 150]
+        if (float.IsNaN(result) || float.IsInfinity(result))
+        {
+            return 0f;
+        }
+        
+        return Mathf.Clamp(result, -150f, 150f);
         }
 }
 }
